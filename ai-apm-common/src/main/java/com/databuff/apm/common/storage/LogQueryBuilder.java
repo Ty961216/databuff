@@ -269,10 +269,22 @@ public final class LogQueryBuilder {
 
     /** Distinct span_id values that have at least one log row for the trace. */
     public static String spanIdsWithLogsSql(String database, String traceId) {
-        StringBuilder sql = new StringBuilder(160);
+        return spanIdsWithLogsSql(database, traceId, 0L, 0L);
+    }
+
+    /**
+     * Distinct span_id values with logs for the trace. Optional {@code log_time} window enables
+     * partition pruning on {@code PARTITION BY RANGE(log_time)}.
+     */
+    public static String spanIdsWithLogsSql(String database, String traceId, long fromMillis, long toMillis) {
+        StringBuilder sql = new StringBuilder(220);
         sql.append("SELECT DISTINCT span_id FROM ").append(database).append('.').append(DorisTableNames.LOG_DC_RECORD);
         sql.append(" WHERE trace_id = '").append(escape(traceId)).append("'");
         sql.append(" AND span_id != ''");
+        if (fromMillis > 0L && toMillis > fromMillis) {
+            sql.append(" AND log_time >= '").append(formatTime(fromMillis)).append("'");
+            sql.append(" AND log_time < '").append(formatTime(toMillis)).append("'");
+        }
         return sql.toString();
     }
 

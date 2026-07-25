@@ -817,7 +817,7 @@ class TracePortalServiceTest {
             assertThat(sql).contains("db.statement");
             assertThat(sql).contains("(FLOOR(`end` / 1000000 / 60000) * 60000) >= ");
             assertThat(sql).contains("(FLOOR(`end` / 1000000 / 60000) * 60000) < ");
-            assertThat(sql).doesNotContain("`startTime` >=");
+            assertThat(sql).contains("`startTime` >=");
             return 1L;
         });
         ApmQueryModels.CallSpanRow dbSpan =

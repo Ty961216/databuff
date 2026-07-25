@@ -1596,4 +1596,4 @@ DISTRIBUTED BY HASH(`id`) BUCKETS 1
 PROPERTIES ("replication_num" = "1");
 
 INSERT INTO schema_version (id, version, applied_at)
-VALUES (1, 4, NOW());
+VALUES (1, 5, NOW());

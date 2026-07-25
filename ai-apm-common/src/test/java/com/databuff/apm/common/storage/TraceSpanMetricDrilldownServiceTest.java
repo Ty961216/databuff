@@ -68,6 +68,6 @@ class TraceSpanMetricDrilldownServiceTest {
         verify(reader).querySpanSummaries(argThat(sql ->
                 sql.contains("(FLOOR(`end` / 1000000 / 60000) * 60000) >= ")
                         && sql.contains("(FLOOR(`end` / 1000000 / 60000) * 60000) < ")
-                        && !sql.contains("`startTime` >=")));
+                        && sql.contains("`startTime` >=")));
     }
 }

@@ -16,6 +16,8 @@ class MetricQueryBuilderTest {
         assertThat(sql).contains("databuff.`metric_service`");
         assertThat(sql).contains("SUM(`error`)");
         assertThat(sql).contains("`ts` >= 0 AND `ts` < 3600000");
+        assertThat(sql).contains("`metric_time` >= '");
+        assertThat(sql).contains("`metric_time` < '");
     }
 
     @Test
@@ -47,7 +49,7 @@ class MetricQueryBuilderTest {
         assertThat(sql).contains("`serviceId` = '9bf61532d56eb7b5'");
         assertThat(sql).contains("(FLOOR(`end` / 1000000 / 60000) * 60000) >= ");
         assertThat(sql).contains("(FLOOR(`end` / 1000000 / 60000) * 60000) < ");
-        assertThat(sql).doesNotContain("`startTime` >=");
+        assertThat(sql).contains("`startTime` >=");
         assertThat(sql).contains("ORDER BY `startTime` DESC");
         assertThat(sql).contains("LIMIT 50 OFFSET 0");
 
@@ -63,6 +65,7 @@ class MetricQueryBuilderTest {
         assertThat(countSql).contains("COUNT(*) AS total_cnt");
         assertThat(countSql).contains("`is_parent` = 1");
         assertThat(countSql).contains("(FLOOR(`end` / 1000000 / 60000) * 60000)");
+        assertThat(countSql).contains("`startTime` >=");
     }
 
     @Test
@@ -124,7 +127,7 @@ class MetricQueryBuilderTest {
                 0);
         assertThat(sql).contains("(FLOOR(`end` / 1000000 / 60000) * 60000) >= ");
         assertThat(sql).contains("(FLOOR(`end` / 1000000 / 60000) * 60000) < ");
-        assertThat(sql).doesNotContain("`startTime` >=");
+        assertThat(sql).contains("`startTime` >=");
         assertThat(sql).contains("$.\"" + "db.statement" + "\"");
         assertThat(sql).contains("$.\"" + "db.system" + "\"");
     }
@@ -133,7 +136,8 @@ class MetricQueryBuilderTest {
     void callSpanListSqlBucketsBySpanEndMinuteForLongLivedSpans() {
         // Long-lived streaming RPC (e.g. flagd EventStream) starts outside the clicked
         // metric bucket but ends inside it; metric_service_rpc.ts is the span end-minute
-        // bucket, so the drill-down must filter by end minute too, not startTime.
+        // bucket, so the drill-down must filter by end minute (not replace with startTime).
+        // A loose startTime lookback is AND-ed only for Doris partition pruning.
         long from = ApmTimeZones.wallClockToEpochMilli("2026-07-17 21:12:00");
         long to = ApmTimeZones.wallClockToEpochMilli("2026-07-17 21:13:00");
         String sql = MetricQueryBuilder.callSpanListSql(
@@ -150,7 +154,9 @@ class MetricQueryBuilderTest {
                 "start", "desc", 50, 0);
         assertThat(sql).contains("(FLOOR(`end` / 1000000 / 60000) * 60000) >= " + from);
         assertThat(sql).contains("(FLOOR(`end` / 1000000 / 60000) * 60000) < " + to);
-        assertThat(sql).doesNotContain("`startTime` >=");
+        long pruneFrom = from - MetricQueryBuilder.SPAN_PARTITION_LOOKBACK_MS;
+        assertThat(sql).contains("`startTime` >= '" + ApmTimeZones.formatWallClock(pruneFrom) + "'");
+        assertThat(sql).contains("`startTime` < '" + ApmTimeZones.formatWallClock(to) + "'");
     }
 
     @Test
@@ -171,7 +177,7 @@ class MetricQueryBuilderTest {
                 "2026-06-05 14:01:00");
         assertThat(sql).contains("(FLOOR(`end` / 1000000 / 60000) * 60000) >= ");
         assertThat(sql).contains("(FLOOR(`end` / 1000000 / 60000) * 60000) < ");
-        assertThat(sql).doesNotContain("`startTime` >=");
+        assertThat(sql).contains("`startTime` >=");
     }
 
     @Test
@@ -326,6 +332,20 @@ class MetricQueryBuilderTest {
         assertThat(sql).contains("trace_id` = 'abc123'");
         assertThat(sql).contains("parent_id");
         assertThat(sql).contains("`start`");
+        assertThat(sql).doesNotContain("`startTime` >=");
+    }
+
+    @Test
+    void buildsTraceDetailSqlWithPartitionPruneWindow() {
+        long from = ApmTimeZones.wallClockToEpochMilli("2026-06-05 22:10:00");
+        long to = ApmTimeZones.wallClockToEpochMilli("2026-06-05 22:20:00");
+        String sql = MetricQueryBuilder.traceDetailSql(
+                "databuff", "abc123", from, to, "2026-06-05 22:10:00", "2026-06-05 22:20:00");
+        assertThat(sql).contains("trace_id` = 'abc123'");
+        long pruneFrom = from - MetricQueryBuilder.SPAN_PARTITION_LOOKBACK_MS;
+        long pruneTo = to + MetricQueryBuilder.SPAN_PARTITION_LOOKBACK_MS;
+        assertThat(sql).contains("`startTime` >= '" + ApmTimeZones.formatWallClock(pruneFrom) + "'");
+        assertThat(sql).contains("`startTime` < '" + ApmTimeZones.formatWallClock(pruneTo) + "'");
     }
 
     @Test

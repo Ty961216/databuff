@@ -1,6 +1,6 @@
 {
-  "schema_version": 4,
+  "schema_version": 5,
   "upgrade_type": "A",
   "min_upgrade_from": "0.1.0",
-  "notes": "V004 expands long-text VARCHAR limits, seeds three built-in detection rules, and adds config_ai_capability with homepage capability seeds."
+  "notes": "V005 reduces dynamic-partition telemetry table buckets from 16 to 3 for newly created partitions (existing partitions unchanged until retention)."
 }

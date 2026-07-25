@@ -113,7 +113,13 @@ public class TraceQueryService {
             return Collections.emptyList();
         }
         try {
-            String sql = MetricQueryBuilder.traceDetailSql(traceDatabase, request.traceId());
+            String sql = MetricQueryBuilder.traceDetailSql(
+                    traceDatabase,
+                    request.traceId(),
+                    request.from(),
+                    request.to(),
+                    request.fromTimeText(),
+                    request.toTimeText());
             return readRepository.querySpanDetails(sql);
         } catch (Exception e) {
             if (e instanceof RuntimeException runtime) {
@@ -212,6 +218,10 @@ public class TraceQueryService {
         }
     }
 
-    public record TraceDetailRequest(String traceId) {
+    public record TraceDetailRequest(
+            String traceId, long from, long to, String fromTimeText, String toTimeText) {
+        public TraceDetailRequest(String traceId) {
+            this(traceId, 0L, 0L, null, null);
+        }
     }
 }

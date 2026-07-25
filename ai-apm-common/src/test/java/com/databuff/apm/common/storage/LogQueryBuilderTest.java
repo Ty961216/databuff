@@ -133,6 +133,9 @@ class LogQueryBuilderTest {
                 "databuff", null, "span-1", List.of("svc"), List.of("inst"), List.of(), null, 0L, 3_600_000L))
                 .contains("hostname");
         assertThat(LogQueryBuilder.spanIdsWithLogsSql("databuff", "trace-abc"))
-                .contains("trace_id = 'trace-abc'").contains("span_id");
+                .contains("trace_id = 'trace-abc'").contains("span_id")
+                .doesNotContain("log_time");
+        assertThat(LogQueryBuilder.spanIdsWithLogsSql("databuff", "trace-abc", 1_000L, 2_000L))
+                .contains("log_time >=").contains("log_time <");
     }
 }

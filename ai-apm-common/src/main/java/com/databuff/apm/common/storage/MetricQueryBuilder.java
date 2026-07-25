@@ -12,6 +12,13 @@ public final class MetricQueryBuilder {
     private static final String AVG_DURATION_MS_EXPR =
             "SUM(`sumDuration`) / NULLIF(SUM(`cnt`), 0) / 1000000";
 
+    /**
+     * Loose lower bound for {@code startTime} partition pruning on span queries that filter by end
+     * minute (or trace-id with a portal window). Keeps long-lived spans (e.g. streaming RPC) while
+     * still dropping most DAY partitions outside the lookback.
+     */
+    public static final long SPAN_PARTITION_LOOKBACK_MS = 7L * 24 * 60 * 60 * 1000;
+
     private MetricQueryBuilder() {
     }
 
@@ -36,11 +43,42 @@ public final class MetricQueryBuilder {
             "(FLOOR(`end` / 1000000 / 60000) * 60000)";
 
     /**
+     * Exclusive upper wall-clock millis so second-truncated DATETIME predicates never drop rows that
+     * still match an epoch-millis {@code < toMillis} filter.
+     */
+    static long exclusiveWallClockCeilMillis(long toMillis) {
+        if (toMillis <= 0L) {
+            return toMillis;
+        }
+        return toMillis % 1000L == 0L ? toMillis : (toMillis / 1000L + 1L) * 1000L;
+    }
+
+    /**
+     * Pushdown-friendly range on a DATETIME partition column (Doris RANGE prune). Must stay a
+     * superset of the semantic epoch filter so rows are never incorrectly excluded.
+     */
+    static String partitionWallClockRange(String column, long fromMillis, long toMillis) {
+        long from = Math.max(0L, fromMillis);
+        long toExclusive = exclusiveWallClockCeilMillis(Math.max(from, toMillis));
+        return "`"
+                + column
+                + "` >= '"
+                + ApmTimeZones.formatWallClock(from)
+                + "' AND `"
+                + column
+                + "` < '"
+                + ApmTimeZones.formatWallClock(toExclusive)
+                + "'";
+    }
+
+    /**
      * All span lists / drill-downs bucket by span end minute to stay consistent with
      * {@code metric_service_*} (whose {@code ts} is the span end-minute bucket, see
      * {@link com.databuff.apm.common.metric.TraceMetricMinuteBucket#minuteBucketEpochMsFromEndNanos}).
      * Bucketing by {@code startTime} drifts off the metric chart for long-lived spans
      * (e.g. streaming RPC {@code EventStream}).
+     *
+     * <p>Also adds a loose {@code startTime} range so Doris can prune {@code PARTITION BY RANGE(startTime)}.
      */
     private static String spanEndBucketTimeWhere(
             long fromMillis,
@@ -49,8 +87,10 @@ public final class MetricQueryBuilder {
             String toTimeText) {
         long from = resolveSpanTimeFromMillis(fromMillis, fromTimeText);
         long to = resolveSpanTimeToMillis(toMillis, toTimeText);
+        long pruneFrom = Math.max(0L, from - SPAN_PARTITION_LOOKBACK_MS);
         return SPAN_END_MINUTE_BUCKET_MS_EXPR + " >= " + from
-                + " AND " + SPAN_END_MINUTE_BUCKET_MS_EXPR + " < " + to;
+                + " AND " + SPAN_END_MINUTE_BUCKET_MS_EXPR + " < " + to
+                + " AND " + partitionWallClockRange("startTime", pruneFrom, to);
     }
 
     private static String spanListTimeWhere(
@@ -75,9 +115,14 @@ public final class MetricQueryBuilder {
         }
     }
 
-    /** Portal endTime is an exclusive upper bound; minute bucket [20:34, 20:35) is stored/queryable before 20:35. */
+    /**
+     * Portal endTime is an exclusive upper bound; minute bucket [20:34, 20:35) is stored/queryable
+     * before 20:35. {@code metric_time} mirrors {@code ts} at write time and enables partition prune
+     * on {@code PARTITION BY RANGE(metric_time)}.
+     */
     private static String metricTsWhere(long fromMillis, long toMillis) {
-        return "`ts` >= " + fromMillis + " AND `ts` < " + toMillis;
+        return "`ts` >= " + fromMillis + " AND `ts` < " + toMillis
+                + " AND " + partitionWallClockRange("metric_time", fromMillis, toMillis);
     }
 
     private static String metricMinuteTsSelect() {
@@ -593,7 +638,29 @@ public final class MetricQueryBuilder {
     }
 
     public static String traceDetailSql(String database, String traceId) {
+        return traceDetailSql(database, traceId, 0L, 0L, null, null);
+    }
+
+    /**
+     * Trace detail by id. When a portal time window is present, adds a loose {@code startTime}
+     * predicate for DAY partition pruning (lookback {@link #SPAN_PARTITION_LOOKBACK_MS}).
+     */
+    public static String traceDetailSql(
+            String database,
+            String traceId,
+            long fromMillis,
+            long toMillis,
+            String fromTimeText,
+            String toTimeText) {
         String escaped = traceId.replace("'", "''");
+        String timePrune = "";
+        long from = resolveSpanTimeFromMillis(fromMillis, fromTimeText);
+        long to = resolveSpanTimeToMillis(toMillis, toTimeText);
+        if (from > 0L && to > from) {
+            long pruneFrom = Math.max(0L, from - SPAN_PARTITION_LOOKBACK_MS);
+            long pruneTo = to + SPAN_PARTITION_LOOKBACK_MS;
+            timePrune = " AND " + partitionWallClockRange("startTime", pruneFrom, pruneTo);
+        }
         return """
                 SELECT `trace_id`, `span_id`, `parent_id`, `service`,
                        COALESCE(NULLIF(`serviceId`, ''), `service`) AS service_id,
@@ -604,9 +671,9 @@ public final class MetricQueryBuilder {
                        `meta.http.url` AS meta_http_url,
                        `meta.error.type` AS meta_error_type
                 FROM %s.`trace_dc_span`
-                WHERE `trace_id` = '%s'
+                WHERE `trace_id` = '%s'%s
                 ORDER BY `startTime` ASC, `start` ASC
-                """.formatted(database, escaped);
+                """.formatted(database, escaped, timePrune);
     }
 
     public static String serviceSeriesSql(

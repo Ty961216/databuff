@@ -74,7 +74,7 @@ public class TracePortalService {
 
             List<Map<String, Object>> spans;
             if (traceId != null && !traceId.isBlank()) {
-                spans = loadTraceDetailPortalSpans(traceId);
+                spans = loadTraceDetailPortalSpans(traceId, body);
             } else {
                 spans = loadPortalSpans(body);
             }
@@ -439,7 +439,7 @@ public class TracePortalService {
             if (i++ >= limit) {
                 break;
             }
-            spans.addAll(loadTraceDetailPortalSpans(id));
+            spans.addAll(loadTraceDetailPortalSpans(id, body));
         }
         return spans;
     }
@@ -628,7 +628,7 @@ public class TracePortalService {
             String traceId = decodeTraceId(body.get("traceId"));
             List<Map<String, Object>> spans = traceId == null || traceId.isBlank()
                     ? List.of()
-                    : loadTraceDetailPortalSpans(traceId);
+                    : loadTraceDetailPortalSpans(traceId, body);
             int limit = Math.min(ServicePortalService.intValue(body.get("size"), 1000), 1000);
             List<Map<String, Object>> page = paginate(spans, 0, limit);
 
@@ -875,7 +875,7 @@ public class TracePortalService {
     public Map<String, Object> serviceFlow(Map<String, Object> body) {
         String traceId = decodeTraceId(body.get("traceId"));
         if (traceId != null && !traceId.isBlank()) {
-            List<Map<String, Object>> spans = loadTraceDetailPortalSpans(traceId);
+            List<Map<String, Object>> spans = loadTraceDetailPortalSpans(traceId, body);
             return TraceServiceFlowBuilder.build(spans);
         }
 
@@ -1227,8 +1227,17 @@ public class TracePortalService {
     private record SpanListScope(Integer isParent, String parentId) {
     }
 
-    private List<Map<String, Object>> loadTraceDetailPortalSpans(String traceId) {
-        List<SpanDetail> spans = traceQueryService.traceDetail(new TraceQueryService.TraceDetailRequest(traceId));
+    private List<Map<String, Object>> loadTraceDetailPortalSpans(String traceId, Map<String, Object> body) {
+        String fromText = body == null ? null : PortalTimeParser.rangeFromText(body);
+        String toText = body == null ? null : PortalTimeParser.rangeToText(body);
+        // Prefer explicit portal bounds only — rangeFrom(…, 0) invents a default window.
+        boolean hasTime = fromText != null && toText != null;
+        long from = hasTime ? PortalTimeParser.rangeFrom(body, 0L) : 0L;
+        long to = hasTime ? PortalTimeParser.rangeTo(body, System.currentTimeMillis()) : 0L;
+        TraceQueryService.TraceDetailRequest detailRequest = hasTime
+                ? new TraceQueryService.TraceDetailRequest(traceId, from, to, fromText, toText)
+                : new TraceQueryService.TraceDetailRequest(traceId);
+        List<SpanDetail> spans = traceQueryService.traceDetail(detailRequest);
         if (spans.isEmpty()) {
             return List.of();
         }
@@ -1237,7 +1246,7 @@ public class TracePortalService {
                 .filter(startNs -> startNs > 0L)
                 .min()
                 .orElse(0L);
-        Set<String> logSpanIds = loadLogSpanIds(traceId);
+        Set<String> logSpanIds = loadLogSpanIds(traceId, hasTime ? from : 0L, hasTime ? to : 0L);
         List<Map<String, Object>> rows = new ArrayList<>();
         for (SpanDetail span : spans) {
             Map<String, Object> row = toPortalTraceSpan(span, minStartNs);
@@ -1248,12 +1257,15 @@ public class TracePortalService {
         return rows;
     }
 
-    private Set<String> loadLogSpanIds(String traceId) {
+    private Set<String> loadLogSpanIds(String traceId, long fromMillis, long toMillis) {
         if (traceId == null || traceId.isBlank()) {
             return Set.of();
         }
         try {
-            String sql = LogQueryBuilder.spanIdsWithLogsSql(traceDatabase, traceId);
+            long lookback = MetricQueryBuilder.SPAN_PARTITION_LOOKBACK_MS;
+            long logFrom = fromMillis > 0L ? Math.max(0L, fromMillis - lookback) : 0L;
+            long logTo = toMillis > fromMillis ? toMillis + lookback : 0L;
+            String sql = LogQueryBuilder.spanIdsWithLogsSql(traceDatabase, traceId, logFrom, logTo);
             List<Map<String, Object>> rows = readRepository.queryRows(sql, 10_000);
             Set<String> spanIds = new HashSet<>();
             for (Map<String, Object> row : rows) {
