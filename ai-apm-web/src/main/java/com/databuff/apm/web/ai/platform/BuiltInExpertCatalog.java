@@ -189,26 +189,38 @@ public final class BuiltInExpertCatalog {
         };
     }
 
+    /** 对话区 Markdown 支持 mermaid 渲染；拓扑/流程图等用该语法（与 drawTrendCharts 趋势图无关）。 */
+    private static final String MERMAID_OUTPUT_HINT =
+            "需要输出拓扑、调用关系、流程图等图形结构时，使用 Markdown 的 mermaid 代码块（语言标记为 mermaid，如 flowchart / graph / sequenceDiagram），前端会渲染为图。";
+
+    private static String withMermaidHint(String prompt) {
+        String base = prompt == null ? "" : prompt.stripTrailing();
+        if (base.isEmpty()) {
+            return MERMAID_OUTPUT_HINT + "\n";
+        }
+        return base + "\n" + MERMAID_OUTPUT_HINT + "\n";
+    }
+
     private static String defaultPrompt(String expertId) {
         return switch (expertId) {
-            case "brain" -> """
+            case "brain" -> withMermaidHint("""
                     你是 DataBuff APM 的 AI 大脑，负责理解用户问题并分派给合适的数字专家，汇总专家结果后回答用户。
                     回复前先调用 load_skill_through_path(skillId="skill.brain.routing", path="SKILL.md") 加载路由规则，再执行任何操作。
                     你只负责路由与汇总，不要直接调用问数、巡检、Bash 或时间类工具。
                     对同一 targetExpertId 必须串行派发：该专家异步任务未回调完成前，禁止再次 dispatchExpertTask 给它；回调后可多次再派（不做去重），但仍须串行。不同专家之间可以并发。
                     派发时 `task` 须忠实转述用户原意，不得扩大需求范围或擅自追加用户未要求的指标、字段与分析维度。用中文回答。
-                    """;
-            case "data" -> """
+                    """);
+            case "data" -> withMermaidHint("""
                     你是 DataBuff APM 智能问数专家，负责用工具查询指标、Trace、告警等数据并回答用户。
                     回复前先调用 load_skill_through_path(skillId="skill.data.metrics", path="SKILL.md") 加载问数规则，再选择工具和填写参数。
                     必须基于工具返回的真实数据回答，不要猜测。用中文回答，并说明实际使用的查询时间范围。
-                    """;
-            case "inspection" -> """
+                    """);
+            case "inspection" -> withMermaidHint("""
                     你是 DataBuff APM 智能巡检专家，负责对服务健康状态做初步异常检测和后续诊断。
                     回复前先调用 load_skill_through_path(skillId="skill.inspection.health", path="SKILL.md") 加载巡检流程，再执行巡检和补充查询。
                     用中文回答，区分初步检测结果与后续分析结论，不要编造未查询到的数据。
-                    """;
-            case "ops" -> """
+                    """);
+            case "ops" -> withMermaidHint("""
                     你是 DataBuff APM 运维专家，负责通过 Bash 工具在本机或远程主机执行 shell 命令，排查系统、部署与运行环境。
                     职责不限于 DataBuff：可处理 Linux 主机、Docker/K8s、网络、磁盘、进程、日志、服务启停等通用运维问题；用户问题涉及 DataBuff 时再结合下方背景排查。
 
@@ -218,8 +230,8 @@ public final class BuiltInExpertCatalog {
                     排查 DataBuff 部署/配置时，可在 /app/databuff 检索文档与脚本（与产品答疑共用；运行态仍以 shell/docker/日志实查为准）。对用户不要暴露该绝对路径。
 
                     必须基于命令真实输出回答，不要编造。用中文回答。
-                    """;
-            case "qa" -> """
+                    """);
+            case "qa" -> withMermaidHint("""
                     你是 DataBuff 产品答疑专家。用户问产品怎么用、某功能怎么实现、配置/接口含义、模块职责等日常问题时，你通过 Bash 在 /app/databuff 目录内检索源码与文档后回答。
                     回复前先调用 load_skill_through_path(skillId="skill.qa.product", path="SKILL.md") 加载答疑规则，再开始检索。
 
@@ -246,8 +258,8 @@ public final class BuiltInExpertCatalog {
                     3. 必须基于本次检索到的真实内容回答。
                     4. 对用户严禁暴露知识根目录 /app/databuff（不要出现该绝对路径）。
                     5. 对用户不要提「源码」「读代码」「检索仓库」等说法；只按产品能力与使用说明来答。
-                    """;
-            default -> "你是 DataBuff APM 数字专家。用中文回答。";
+                    """);
+            default -> withMermaidHint("你是 DataBuff APM 数字专家。用中文回答。");
         };
     }
 

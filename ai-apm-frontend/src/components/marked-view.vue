@@ -13,15 +13,17 @@
  * LLM 输出应原样交给 marked；预处理极易误伤表格/标题/代码块，导致解析失败。
  * 格式问题应在 prompt、后端结构化输出或换渲染方案上解决，不要在前端 patch 文本。
  *
- * Mermaid：mermaid 代码块在 DOM 更新后异步渲染为 SVG；流式输出期间防抖，
- * 解析失败时保留源码占位，不阻断其余 Markdown。
+ * Mermaid：mermaid 代码块在 DOM 更新后异步渲染为 SVG；流式/打字机期间：
+ * - 未闭合的 ```mermaid 围栏不渲染（避免半截图与反复失败）
+ * - 已渲染的图按源码缓存，v-html 重绘后同步回填，避免闪烁
+ * - 解析失败时保留源码占位，不阻断其余 Markdown
  *
  * 通过 /vendor/mermaid.min.js 脚本加载（不走 Vite 打包），避免 mermaid 与
  * AntV 强制拆包产生循环依赖导致整站白屏。文件由 yarn copy:mermaid /
  * postinstall 从 node_modules 拷到 public/vendor（不入库）。
  *
  * 思考过程折叠（v-show / display:none）时不渲染；可见后再 run，避免量出
- * 16x16 残缺 SVG。
+ * 16x16 残缺 SVG。展开后多次延迟重试，覆盖 collapse 过渡动画。
  */
 import { Vue, Component, Prop, Watch } from 'vue-property-decorator'
 import Clipboard from 'clipboard'
@@ -35,6 +37,9 @@ type MermaidApi = {
   run: (options: { nodes: HTMLElement[] }) => Promise<void>
 }
 
+/** 模块级缓存：同源 mermaid 文本复用 SVG，跨组件实例也避免重复布局闪烁 */
+const mermaidSvgCache = new Map<string, string>()
+
 function escapeHtml (text: string): string {
   return text
     .replace(/&/g, '&amp;')
@@ -44,15 +49,43 @@ function escapeHtml (text: string): string {
     .replace(/'/g, '&#39;')
 }
 
+/** 检测 Markdown 中是否存在未闭合的 ```mermaid 围栏（流式输出中） */
+function hasOpenMermaidFence (markdown: string): boolean {
+  if (!markdown || !/```\s*mermaid\b/i.test(markdown)) {
+    return false
+  }
+  let open = false
+  for (const line of markdown.split(/\r?\n/)) {
+    const trimmed = line.trim()
+    if (!open) {
+      if (/^```\s*mermaid\b/i.test(trimmed)) {
+        open = true
+      }
+      continue
+    }
+    if (/^```\s*$/.test(trimmed)) {
+      open = false
+    }
+  }
+  return open
+}
+
 const mermaidRenderer = new marked.Renderer()
 const defaultCodeRenderer = mermaidRenderer.code.bind(mermaidRenderer)
 mermaidRenderer.code = function (code: string, infostring: string, escaped: boolean) {
   const lang = (infostring || '').match(/^\S*/)?.[0] || ''
   if (lang === 'mermaid') {
-    const body = escaped ? code : escapeHtml(code)
-    // 保留原文，便于不可见时误渲染后恢复重试
-    const source = encodeURIComponent(code)
-    return `<div class="mermaid-diagram" data-mermaid-source="${source}"><pre class="mermaid">${body}</pre></div>\n`
+    // 始终转义进 HTML；mermaid.run 读 textContent 时浏览器会还原 <br/> 等
+    const raw = escaped
+      ? code
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&amp;/g, '&')
+      : code
+    const source = encodeURIComponent(raw)
+    return `<div class="mermaid-diagram" data-mermaid-source="${source}"><pre class="mermaid">${escapeHtml(raw)}</pre></div>\n`
   }
   return defaultCodeRenderer(code, infostring, escaped)
 }
@@ -61,7 +94,7 @@ marked.setOptions({
   renderer: mermaidRenderer,
   highlight: (code: string, lang: string = 'bash') => {
     if (lang === 'mermaid') {
-      // 原样交给 renderer，避免 highlight.js 改写语法
+      // 不走 highlight.js，交由自定义 renderer 处理
       return null as unknown as string
     }
     return hljs.highlightAuto(code).value
@@ -87,10 +120,15 @@ function loadMermaid (): Promise<MermaidApi> {
     mermaidLoadPromise = new Promise<MermaidApi>((resolve, reject) => {
       const existing = document.querySelector<HTMLScriptElement>('script[data-databuff-mermaid]')
       if (existing) {
+        if ((window as any).mermaid) {
+          resolve((window as any).mermaid as MermaidApi)
+          return
+        }
         existing.addEventListener('load', () => resolve((window as any).mermaid as MermaidApi))
         existing.addEventListener('error', () => reject(new Error('mermaid script load failed')))
         return
       }
+      // 静态资源挂在站点根（/vendor/...），不是 Vue Router 的 /databuff 前缀
       const script = document.createElement('script')
       script.src = '/vendor/mermaid.min.js'
       script.async = true
@@ -136,6 +174,14 @@ function isBrokenMermaidSvg (svg: SVGElement): boolean {
   return rect.width > 0 && rect.height > 0 && rect.width < 40 && rect.height < 40
 }
 
+function decodeMermaidSource (diagram: HTMLElement): string {
+  try {
+    return decodeURIComponent(diagram.getAttribute('data-mermaid-source') || '')
+  } catch (e) {
+    return ''
+  }
+}
+
 @Component
 export default class MarkedView extends Vue {
   @Prop({ default: '' }) private data!: string
@@ -147,7 +193,8 @@ export default class MarkedView extends Vue {
   }
 
   private markedData: string = ''
-  private mermaidRenderTimer: ReturnType<typeof setTimeout> | null = null
+  private mermaidDebounceTimer: ReturnType<typeof setTimeout> | null = null
+  private mermaidRetryTimers: ReturnType<typeof setTimeout>[] = []
   private mermaidRenderToken = 0
   private mermaidVisibilityObserver: IntersectionObserver | null = null
 
@@ -159,7 +206,15 @@ export default class MarkedView extends Vue {
     if (this.showCopy) {
       this.initCopyButton();
     }
-    this.scheduleMermaidRender()
+    // v-html 更新后同步回填缓存 SVG，避免打字机重绘闪烁
+    this.$nextTick(() => {
+      this.restoreCachedMermaidSvgs()
+      // 围栏未闭合时只展示源码，不调度 mermaid.run
+      if (this.type !== 'code' && hasOpenMermaidFence(this.data || '')) {
+        return
+      }
+      this.scheduleMermaidRender(280, true)
+    })
   }
 
   private created() {
@@ -174,10 +229,7 @@ export default class MarkedView extends Vue {
   }
 
   private beforeDestroy () {
-    if (this.mermaidRenderTimer) {
-      clearTimeout(this.mermaidRenderTimer)
-      this.mermaidRenderTimer = null
-    }
+    this.clearMermaidRenderTimers()
     this.mermaidRenderToken += 1
     if (this.mermaidVisibilityObserver) {
       this.mermaidVisibilityObserver.disconnect()
@@ -187,18 +239,37 @@ export default class MarkedView extends Vue {
   }
 
   private onMermaidRetry = () => {
-    this.scheduleMermaidRender()
+    // collapse 过渡期间高度可能为 0，分多次重试（不互相 debounce 掉）
+    this.scheduleMermaidRender(0, false)
+    this.scheduleMermaidRender(120, false)
+    this.scheduleMermaidRender(360, false)
   }
 
-  private scheduleMermaidRender () {
-    if (this.mermaidRenderTimer) {
-      clearTimeout(this.mermaidRenderTimer)
+  private clearMermaidRenderTimers () {
+    if (this.mermaidDebounceTimer) {
+      clearTimeout(this.mermaidDebounceTimer)
+      this.mermaidDebounceTimer = null
     }
-    // 流式输出时防抖，等代码块相对稳定再渲染
-    this.mermaidRenderTimer = setTimeout(() => {
-      this.mermaidRenderTimer = null
+    this.mermaidRetryTimers.forEach(timer => clearTimeout(timer))
+    this.mermaidRetryTimers = []
+  }
+
+  private scheduleMermaidRender (delay = 280, debounce = true) {
+    if (debounce) {
+      if (this.mermaidDebounceTimer) {
+        clearTimeout(this.mermaidDebounceTimer)
+      }
+      this.mermaidDebounceTimer = setTimeout(() => {
+        this.mermaidDebounceTimer = null
+        this.renderMermaidDiagrams()
+      }, delay)
+      return
+    }
+    const timer = setTimeout(() => {
+      this.mermaidRetryTimers = this.mermaidRetryTimers.filter(item => item !== timer)
       this.renderMermaidDiagrams()
-    }, 280)
+    }, delay)
+    this.mermaidRetryTimers.push(timer)
   }
 
   private ensureMermaidVisibilityObserver () {
@@ -208,7 +279,7 @@ export default class MarkedView extends Vue {
     this.mermaidVisibilityObserver = new IntersectionObserver((entries) => {
       const visible = entries.some(entry => entry.isIntersecting && entry.intersectionRatio > 0)
       if (visible) {
-        this.scheduleMermaidRender()
+        this.onMermaidRetry()
       }
     }, { threshold: 0.01 })
     const wrap = this.$refs.markedWrap
@@ -217,31 +288,68 @@ export default class MarkedView extends Vue {
     }
   }
 
+  /** v-html 重绘后立刻用缓存 SVG 填回，消除闪烁 */
+  private restoreCachedMermaidSvgs () {
+    const wrap = this.$refs.markedWrap
+    if (!wrap) {
+      return
+    }
+    wrap.querySelectorAll<HTMLElement>('.mermaid-diagram[data-mermaid-source]').forEach((diagram) => {
+      if (diagram.querySelector('svg')) {
+        return
+      }
+      const source = decodeMermaidSource(diagram)
+      if (!source.trim()) {
+        return
+      }
+      const cached = mermaidSvgCache.get(source)
+      if (!cached) {
+        return
+      }
+      diagram.innerHTML = cached
+    })
+  }
+
   private restoreBrokenMermaidDiagrams (wrap: HTMLElement) {
     wrap.querySelectorAll<HTMLElement>('.mermaid-diagram[data-mermaid-source]').forEach((diagram) => {
       const svg = diagram.querySelector('svg')
       if (!svg || !isBrokenMermaidSvg(svg as unknown as SVGElement)) {
         return
       }
-      let source = ''
-      try {
-        source = decodeURIComponent(diagram.getAttribute('data-mermaid-source') || '')
-      } catch (e) {
-        return
-      }
+      const source = decodeMermaidSource(diagram)
       if (!source.trim()) {
         return
       }
+      mermaidSvgCache.delete(source)
       diagram.innerHTML = `<pre class="mermaid">${escapeHtml(source)}</pre>`
     })
   }
 
   private collectPendingMermaidNodes (wrap: HTMLElement): HTMLElement[] {
     this.restoreBrokenMermaidDiagrams(wrap)
+    this.restoreCachedMermaidSvgs()
     return Array.from(wrap.querySelectorAll<HTMLElement>('pre.mermaid:not([data-processed])'))
   }
 
+  private cacheRenderedDiagrams (wrap: HTMLElement) {
+    wrap.querySelectorAll<HTMLElement>('.mermaid-diagram[data-mermaid-source]').forEach((diagram) => {
+      const svg = diagram.querySelector('svg')
+      if (!svg || isBrokenMermaidSvg(svg as unknown as SVGElement)) {
+        return
+      }
+      const source = decodeMermaidSource(diagram)
+      if (!source.trim()) {
+        return
+      }
+      // 缓存整段 diagram 内容（含 svg），回填时保持结构
+      mermaidSvgCache.set(source, diagram.innerHTML)
+    })
+  }
+
   private async renderMermaidDiagrams () {
+    if (this.type !== 'code' && hasOpenMermaidFence(this.data || '')) {
+      return
+    }
     const token = ++this.mermaidRenderToken
     await this.$nextTick()
     if (token !== this.mermaidRenderToken) {
@@ -274,6 +382,11 @@ export default class MarkedView extends Vue {
       if (!isElementVisible(wrap)) {
         return
       }
+      // 加载脚本期间 DOM 可能被打字机重绘，重新采集待渲染节点
+      const freshNodes = this.collectPendingMermaidNodes(wrap)
+      if (!freshNodes.length) {
+        return
+      }
       if (!mermaidInitialized) {
         const isDark = document.documentElement.getAttribute('data-theme') === 'dark'
         mermaid.initialize({
@@ -285,9 +398,10 @@ export default class MarkedView extends Vue {
         })
         mermaidInitialized = true
       }
-      await mermaid.run({ nodes })
+      await mermaid.run({ nodes: freshNodes })
       // 若仍因布局瞬时不可见而残缺，恢复源码等下次可见重试
       this.restoreBrokenMermaidDiagrams(wrap)
+      this.cacheRenderedDiagrams(wrap)
     } catch (err) {
       // 语法未闭合或非法时保留源码，不打断其余内容
       console.warn('[marked-view] mermaid render failed', err)
@@ -462,6 +576,8 @@ export default class MarkedView extends Vue {
     border-radius: 4px;
     background-color: var(--background-color-base, #f5f6f7);
     text-align: center;
+    /* 未渲染时给一点最小高度，减少源码↔SVG 切换的布局跳动 */
+    min-height: 48px;
 
     pre.mermaid {
       margin: 0;

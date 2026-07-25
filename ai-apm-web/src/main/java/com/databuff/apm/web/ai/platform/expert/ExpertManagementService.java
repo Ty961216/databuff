@@ -166,11 +166,18 @@ public class ExpertManagementService {
         if (blank(systemPrompt)) {
             return true;
         }
+        // 旧默认（含未带 mermaid 指引的中文版）在升级时用目录最新 prompt 覆盖；已含 mermaid 或用户定制则保留。
+        boolean missingMermaidHint = !systemPrompt.contains("mermaid");
         return switch (expertId) {
-            case "data" -> systemPrompt.startsWith("You are the DataBuff APM data expert");
+            case "data" -> systemPrompt.startsWith("You are the DataBuff APM data expert")
+                    || (missingMermaidHint && systemPrompt.startsWith("你是 DataBuff APM 智能问数专家"));
             case "brain" -> systemPrompt.startsWith("You are the DataBuff APM brain expert")
-                    || systemPrompt.contains("Your primary job is routing");
-            case "inspection" -> systemPrompt.startsWith("你是 DataBuff APM 智能巡检专家，负责对服务健康状态做初步异常检测");
+                    || systemPrompt.contains("Your primary job is routing")
+                    || (missingMermaidHint && systemPrompt.startsWith("你是 DataBuff APM 的 AI 大脑"));
+            case "inspection" -> missingMermaidHint
+                    && systemPrompt.startsWith("你是 DataBuff APM 智能巡检专家，负责对服务健康状态做初步异常检测");
+            case "ops" -> missingMermaidHint && systemPrompt.startsWith("你是 DataBuff APM 运维专家");
+            case "qa" -> missingMermaidHint && systemPrompt.startsWith("你是 DataBuff 产品答疑专家");
             default -> false;
         };
     }

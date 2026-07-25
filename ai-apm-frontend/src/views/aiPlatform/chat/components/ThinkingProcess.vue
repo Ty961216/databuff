@@ -389,12 +389,18 @@ export default class ThinkingProcess extends Vue {
     this.expanded = !this.expanded;
     this.$nextTick(() => {
       this.$emit('layout-change', this.$el);
-      // 展开后触发内部 marked-view 的可见性重试（IntersectionObserver / 残缺图恢复）
+      // 展开后触发 mermaid 重试；collapse 过渡期间高度可能为 0，分多次派发
       if (this.expanded) {
-        this.$el.querySelectorAll('.marked-view-wrapper').forEach((node: Element) => {
-          node.dispatchEvent(new Event('databuff-mermaid-retry'));
-        });
+        this.retryMermaidInThinking();
+        window.setTimeout(() => this.retryMermaidInThinking(), 120);
+        window.setTimeout(() => this.retryMermaidInThinking(), 360);
       }
+    });
+  }
+
+  private retryMermaidInThinking () {
+    this.$el.querySelectorAll('.marked-view-wrapper').forEach((node: Element) => {
+      node.dispatchEvent(new Event('databuff-mermaid-retry'));
     });
   }
 }
