@@ -70,9 +70,9 @@ ingest:
     # Parallel in-flight Stream Loads for trace_dc_span (ready-queue consumers). Env: INGEST_DORIS_TRACE_FLUSH_CONCURRENCY
     # Default 1: each load adds tablet versions; parallel loads blow past Doris's ~2000 version cap on single BE.
     trace-flush-concurrency: ${INGEST_DORIS_TRACE_FLUSH_CONCURRENCY:1}
-    # Primary flush trigger: per-thread buffer hand-off at this estimated NDJSON size (default 32 MiB).
+    # Primary flush trigger: per-thread buffer hand-off at this estimated NDJSON size (default 50 MiB).
     # Prefer large/infrequent loads over small/frequent ones (BE: "Please reduce the frequency of loading data").
-    flush-batch-bytes: ${INGEST_DORIS_FLUSH_BATCH_BYTES:33554432}
+    flush-batch-bytes: ${INGEST_DORIS_FLUSH_BATCH_BYTES:52428800}
     # Safety poll for leftover ready-queue batches (size flush is mostly async on hand-off).
     # Only sinks with hasReady() are touched; default 5s to cut idle scheduler noise.
     flush-check-interval-ms: ${INGEST_DORIS_FLUSH_CHECK_INTERVAL_MS:5000}

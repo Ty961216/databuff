@@ -18,11 +18,11 @@ import java.util.concurrent.TimeUnit;
 public class DorisBatchWriter {
 
     /**
-     * Default Stream Load batch size: 32 MiB.
+     * Default Stream Load batch size: 50 MiB.
      * Larger batches cut Stream Load frequency so tablet versions stay under Doris's ~2000 cap
      * (compaction cannot keep up with tiny/high-frequency loads on a single BE).
      */
-    public static final long DEFAULT_MAX_BATCH_BYTES = 32L * 1024 * 1024;
+    public static final long DEFAULT_MAX_BATCH_BYTES = 50L * 1024 * 1024;
 
     /** Default per-thread buffer age before hand-off (time fallback on the offer path). */
     public static final long DEFAULT_FLUSH_INTERVAL_MS = 30_000L;
