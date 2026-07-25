@@ -35,7 +35,6 @@ public class ExpertRuntimeRegistry {
     private final ExpertToolResolver expertToolResolver;
     private final AgentScopeRuntimeAdapter runtimeAdapter;
     private final BrainRoutingCatalog brainRoutingCatalog;
-    private final ObjectProvider<SessionExpertRuntimeRegistry> sessionExpertRuntimeRegistry;
     private final ConcurrentMap<String, CachedRuntime> runtimes = new ConcurrentHashMap<>();
 
     public ExpertRuntimeRegistry(
@@ -46,7 +45,7 @@ public class ExpertRuntimeRegistry {
             ExpertToolResolver expertToolResolver,
             AgentScopeRuntimeAdapter runtimeAdapter,
             BrainRoutingCatalog brainRoutingCatalog,
-            ObjectProvider<SessionExpertRuntimeRegistry> sessionExpertRuntimeRegistry) {
+            @SuppressWarnings("unused") ObjectProvider<SessionExpertRuntimeRegistry> sessionExpertRuntimeRegistry) {
         this.expertManagementService = expertManagementService;
         this.toolManagementService = toolManagementService;
         this.skillManagementService = skillManagementService;
@@ -54,7 +53,8 @@ public class ExpertRuntimeRegistry {
         this.expertToolResolver = expertToolResolver;
         this.runtimeAdapter = runtimeAdapter;
         this.brainRoutingCatalog = brainRoutingCatalog;
-        this.sessionExpertRuntimeRegistry = sessionExpertRuntimeRegistry;
+        // sessionExpertRuntimeRegistry intentionally unused: invalidate must not release
+        // session-scoped runtimes (Doris hydrate used to kill in-flight AI dialogues).
     }
 
     public ExpertRuntime getOrCreate(String expertId) {
@@ -92,10 +92,9 @@ public class ExpertRuntimeRegistry {
             removed.runtime.close();
             log.info("Invalidated runtime for expert {}: {}", expertId, reason);
         }
-        SessionExpertRuntimeRegistry sessionRegistry = sessionExpertRuntimeRegistry.getIfAvailable();
-        if (sessionRegistry != null) {
-            sessionRegistry.releaseByExpert(expertId);
-        }
+        // Session-scoped runtimes for ALL digital experts stay untouched. Doris/config reload
+        // must not interrupt in-flight dialogues; SessionExpertRuntimeRegistry.getOrCreate
+        // rebuilds lazily when the fingerprint changes on the next turn.
     }
 
     public void invalidateByTool(String toolId) {

@@ -86,13 +86,17 @@ public class DorisAvailabilityMonitor {
                 log.info("Doris startup probe OK");
                 return;
             }
-            if (wasUnavailable) {
-                log.info("Doris recovered (periodic probe OK); exiting troubleshooting mode");
+            if (persistenceHydrator == null) {
+                return;
             }
-            // Always force-reload while Doris is up. Ping-only "available" can still serve
-            // empty/stale reads during cluster mess; only a fresh load after recovery is safe.
-            if (persistenceHydrator != null) {
+            if (wasUnavailable) {
+                // Only force-reload config after a real outage. Periodic healthy probes must NOT
+                // re-apply providers/sessions — that used to kill live dialogues for every
+                // digital expert (brain/data/inspection/ops/qa/…), not only brain.
+                log.info("Doris recovered (periodic probe OK); exiting troubleshooting mode");
                 persistenceHydrator.ensureHydrated(true);
+            } else if (!persistenceHydrator.isHydrateCompleted()) {
+                persistenceHydrator.ensureHydrated(false);
             }
             return;
         }

@@ -67,8 +67,15 @@ public class AiSessionPersistence {
         persistenceEnabled = true;
         try {
             List<ApmConfigRepository.AiSessionSummaryRow> sessions = repository.loadRecentAiSessions(HYDRATE_LIMIT);
+            int hydrated = 0;
+            int skippedLive = 0;
             for (ApmConfigRepository.AiSessionSummaryRow session : sessions) {
                 persistedSessionIds.add(session.sessionId());
+                // Never overwrite an in-memory session (esp. running AI dialogues) on Doris reload.
+                if (sessionStore.hasSession(session.sessionId())) {
+                    skippedLive++;
+                    continue;
+                }
                 List<ApmConfigRepository.AiMessageRow> messages = repository.loadAiMessages(session.sessionId());
                 String title = deriveTitle(messages);
                 sessionStore.hydrateSession(
@@ -80,8 +87,10 @@ public class AiSessionPersistence {
                         null,
                         session.userName(),
                         messages.stream().map(this::toChatMessage).toList());
+                hydrated++;
             }
-            log.info("AI message persistence enabled ({} sessions from store)", sessions.size());
+            log.info("AI message persistence enabled ({} sessions from store, hydrated={}, skippedLive={})",
+                    sessions.size(), hydrated, skippedLive);
         } catch (Exception e) {
             log.warn("Failed to hydrate AI messages from store (writes still enabled): {}", e.getMessage());
         }

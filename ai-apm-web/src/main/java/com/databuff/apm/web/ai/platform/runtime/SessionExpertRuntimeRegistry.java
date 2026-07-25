@@ -132,25 +132,19 @@ public class SessionExpertRuntimeRegistry {
         }
     }
 
+    /**
+     * Config / Doris hydrate invalidation entry. Must be a no-op for every digital expert
+     * (brain, data, inspection, ops, qa, custom, …): never close or drop session-scoped
+     * runtimes mid-flight. {@link #getOrCreate} rebuilds lazily when the fingerprint changes
+     * on the next turn. Explicit session teardown uses {@link #release(String)} /
+     * {@link #release(String, String)}.
+     */
     public void releaseByExpert(String expertId) {
         if (expertId == null || expertId.isBlank()) {
             return;
         }
-        String normalizedExpertId = expertId.trim();
-        List<String> keys = new ArrayList<>();
-        for (var entry : runtimes.entrySet()) {
-            if (normalizedExpertId.equals(entry.getValue().expertId())) {
-                keys.add(entry.getKey());
-            }
-        }
-        for (String key : keys) {
-            CachedSessionRuntime removed = runtimes.remove(key);
-            if (removed != null) {
-                removed.runtime.close();
-                log.info("Released session-scoped runtime for session {} expert {} (expert invalidated)",
-                        removed.sessionId(), removed.expertId());
-            }
-        }
+        log.debug("Ignoring releaseByExpert({}) — Doris/config reload must not interrupt live AI dialogues",
+                expertId.trim());
     }
 
     public void releaseAll() {

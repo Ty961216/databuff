@@ -108,6 +108,19 @@ class InMemoryLlmProviderStoreTest {
     }
 
     @Test
+    void unchangedDorisReapplyDoesNotBumpProviderVersion() {
+        InMemoryLlmProviderStore store = TestBeanSupport.llmProviderStore();
+        ApmConfigRepository.LlmProviderRow row = new ApmConfigRepository.LlmProviderRow(
+                "openai", "OpenAI", "https://api.openai.com/v1", true, "c2stZXk=", "gpt-4o");
+        store.applyPersistedRows(List.of(row));
+        long versionAfterFirst = store.providerVersion("openai");
+
+        store.applyPersistedRows(List.of(row));
+
+        assertThat(store.providerVersion("openai")).isEqualTo(versionAfterFirst);
+    }
+
+    @Test
     void updatesBaseUrlAndDefaultModel() {
         InMemoryLlmProviderStore store = TestBeanSupport.llmProviderStore();
         LlmProviderView updated = store.updateProvider("ollama", new UpdateLlmProviderRequest(

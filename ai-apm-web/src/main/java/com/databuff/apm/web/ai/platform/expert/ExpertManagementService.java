@@ -99,39 +99,59 @@ public class ExpertManagementService {
                 log.warn("Skipping persisted expert {} from store: {}", definition.expertId(), e.getMessage());
                 continue;
             }
-            experts.compute(definition.expertId(), (id, existing) -> {
-                boolean builtIn = (existing != null && existing.builtIn()) || definition.builtIn();
-                List<String> toolIds;
-                String name;
-                if (existing != null && existing.builtIn() && "brain".equals(id)) {
-                    toolIds = existing.toolIds();
-                    name = existing.name();
-                } else if (existing != null && existing.builtIn()) {
-                    toolIds = mergeIds(existing.toolIds(), definition.toolIds());
-                    name = definition.name();
-                } else {
-                    toolIds = definition.toolIds();
-                    name = definition.name();
-                }
-                List<String> skillIds = existing != null && existing.builtIn()
-                        ? mergeBuiltInSkillIds(existing.skillIds(), definition.skillIds())
-                        : definition.skillIds();
-                String systemPrompt = existing != null && existing.builtIn()
-                        ? resolveBuiltInSystemPrompt(existing, definition)
-                        : definition.systemPrompt();
-                return new AiExpertDefinition(
-                        definition.expertId(), name, definition.category(), definition.description(), definition.type(),
-                        definition.modelProviderCode(), definition.modelName(), systemPrompt,
-                        toolIds, skillIds, definition.options(), definition.enabled(),
-                        builtIn, definition.version(), definition.createdAt(), definition.updatedAt());
-            });
+            AiExpertDefinition existing = experts.get(definition.expertId());
+            boolean builtIn = (existing != null && existing.builtIn()) || definition.builtIn();
+            List<String> toolIds;
+            String name;
+            if (existing != null && existing.builtIn() && "brain".equals(definition.expertId())) {
+                toolIds = existing.toolIds();
+                name = existing.name();
+            } else if (existing != null && existing.builtIn()) {
+                toolIds = mergeIds(existing.toolIds(), definition.toolIds());
+                name = definition.name();
+            } else {
+                toolIds = definition.toolIds();
+                name = definition.name();
+            }
+            List<String> skillIds = existing != null && existing.builtIn()
+                    ? mergeBuiltInSkillIds(existing.skillIds(), definition.skillIds())
+                    : definition.skillIds();
+            String systemPrompt = existing != null && existing.builtIn()
+                    ? resolveBuiltInSystemPrompt(existing, definition)
+                    : definition.systemPrompt();
+            AiExpertDefinition merged = new AiExpertDefinition(
+                    definition.expertId(), name, definition.category(), definition.description(), definition.type(),
+                    definition.modelProviderCode(), definition.modelName(), systemPrompt,
+                    toolIds, skillIds, definition.options(), definition.enabled(),
+                    builtIn, definition.version(), definition.createdAt(), definition.updatedAt());
+            if (existing != null && sameRoutableFingerprint(existing, merged)) {
+                continue;
+            }
+            experts.put(definition.expertId(), merged);
             if (!"brain".equals(definition.expertId())) {
                 routableExpertsChanged = true;
             }
         }
+        // Doris/persistence re-apply must not invalidate any expert runtime (brain or otherwise).
+        // Fingerprint changes are picked up lazily on the next getOrCreate.
         if (routableExpertsChanged) {
-            refreshBrainRouting("persisted", "experts reloaded from persistence");
+            log.debug("Persisted routable experts changed; session runtimes left intact for lazy rebuild");
         }
+    }
+
+    private static boolean sameRoutableFingerprint(AiExpertDefinition left, AiExpertDefinition right) {
+        return left.enabled() == right.enabled()
+                && left.version() == right.version()
+                && java.util.Objects.equals(left.name(), right.name())
+                && java.util.Objects.equals(left.category(), right.category())
+                && java.util.Objects.equals(left.description(), right.description())
+                && java.util.Objects.equals(left.type(), right.type())
+                && java.util.Objects.equals(left.modelProviderCode(), right.modelProviderCode())
+                && java.util.Objects.equals(left.modelName(), right.modelName())
+                && java.util.Objects.equals(left.systemPrompt(), right.systemPrompt())
+                && java.util.Objects.equals(left.toolIds(), right.toolIds())
+                && java.util.Objects.equals(left.skillIds(), right.skillIds())
+                && java.util.Objects.equals(left.options(), right.options());
     }
 
     private static String resolveBuiltInSystemPrompt(AiExpertDefinition builtInDefault, AiExpertDefinition persisted) {
@@ -227,6 +247,8 @@ public class ExpertManagementService {
         if ("brain".equals(changedExpertId)) {
             return;
         }
+        // Only drops the shared brain runtime cache. Session-scoped runtimes for brain and
+        // every other digital expert are never closed by config/Doris reload.
         invalidateRuntime("brain", "routable expert changed (" + changedExpertId + "): " + reason);
     }
 

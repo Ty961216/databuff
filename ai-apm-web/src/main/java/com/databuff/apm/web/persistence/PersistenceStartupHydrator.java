@@ -15,9 +15,9 @@ import java.util.concurrent.atomic.AtomicLong;
 /**
  * Loads Doris-backed config after the web port is listening so startup is not blocked on remote JDBC.
  *
- * <p>Periodic Doris probes always call {@link #ensureHydrated(true)} while Doris is reachable, so
- * config is re-pulled after outages and after "ping OK but reads were empty/stale" cluster mess.
- * Incomplete loads rely on the next probe (no tight retry loop).
+ * <p>Force-reload ({@code ensureHydrated(true)}) runs only after Doris recovery, not on every
+ * healthy periodic probe. Re-applying unchanged LLM/expert rows must not tear down live AI
+ * sessions; incomplete first loads rely on the next soft probe (no tight retry loop).
  */
 @Component
 public class PersistenceStartupHydrator {

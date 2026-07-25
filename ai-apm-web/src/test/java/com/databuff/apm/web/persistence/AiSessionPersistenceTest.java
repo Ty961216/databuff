@@ -111,6 +111,12 @@ class AiSessionPersistenceTest {
         assertThat(sync.persistenceEnabled()).isTrue();
         assertThat(store.messages("s1")).hasSize(1);
 
+        // Second reload must not wipe a live in-memory session.
+        store.setRunning("s1", true);
+        sync.reloadFromStore();
+        assertThat(store.isRunning("s1")).isTrue();
+        assertThat(store.messages("s1")).hasSize(1);
+
         sync.onMessageAppended("s2", "assistant", "ok", now);
         Thread.sleep(300L);
         verify(messagePs).executeUpdate();

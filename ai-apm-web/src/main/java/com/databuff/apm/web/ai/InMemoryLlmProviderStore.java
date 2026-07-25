@@ -305,6 +305,9 @@ public class InMemoryLlmProviderStore {
         for (ApmConfigRepository.LlmProviderRow row : rows) {
             ProviderState state = providers.get(row.providerCode());
             String apiType = row.apiType() == null || row.apiType().isBlank() ? DEFAULT_API_TYPE : row.apiType();
+            String plain = ApiKeyCipher.decode(row.apiKeyCipher());
+            String existingKey = apiKeys.get(row.providerCode());
+            boolean changed;
             if (state == null) {
                 state = new ProviderState(
                         row.providerCode(),
@@ -314,19 +317,28 @@ public class InMemoryLlmProviderStore {
                         apiType,
                         row.enabled());
                 providers.put(row.providerCode(), state);
+                changed = true;
             } else {
+                changed = !java.util.Objects.equals(state.displayName, row.displayName())
+                        || !java.util.Objects.equals(state.baseUrl, row.baseUrl())
+                        || !java.util.Objects.equals(state.defaultModel, row.defaultModel())
+                        || !java.util.Objects.equals(state.apiType, apiType)
+                        || state.enabled != row.enabled()
+                        || (plain != null && !plain.isBlank() && !java.util.Objects.equals(existingKey, plain));
                 state.displayName = row.displayName();
                 state.baseUrl = row.baseUrl();
                 state.defaultModel = row.defaultModel();
                 state.apiType = apiType;
                 state.enabled = row.enabled();
             }
-            String plain = ApiKeyCipher.decode(row.apiKeyCipher());
             if (plain != null && !plain.isBlank()) {
                 apiKeys.put(row.providerCode(), plain);
             }
-            bumpProviderVersion(row.providerCode());
-            invalidateByProvider(row.providerCode());
+            // Doris hydrate may bump the version so the *next* turn rebuilds lazily, but must
+            // never invalidate/close live runtimes — that kills every digital expert mid-flight.
+            if (changed) {
+                bumpProviderVersion(row.providerCode());
+            }
             if (defaultProviderCode == null && row.enabled() && plain != null && !plain.isBlank()) {
                 defaultProviderCode = row.providerCode();
             }
@@ -337,7 +349,13 @@ public class InMemoryLlmProviderStore {
                 grouped.computeIfAbsent(row.providerCode(), key -> new ArrayList<>())
                         .add(fromPersistedModel(row));
             }
-            modelsByProvider.putAll(grouped);
+            for (Map.Entry<String, List<ModelState>> entry : grouped.entrySet()) {
+                List<ModelState> previous = modelsByProvider.getOrDefault(entry.getKey(), List.of());
+                if (!modelListsEqual(previous, entry.getValue())) {
+                    modelsByProvider.put(entry.getKey(), entry.getValue());
+                    bumpProviderVersion(entry.getKey());
+                }
+            }
         }
         for (Map.Entry<String, ProviderState> entry : providers.entrySet()) {
             modelsByProvider.computeIfAbsent(entry.getKey(), key -> defaultModelsFor(entry.getValue()));
@@ -437,6 +455,45 @@ public class InMemoryLlmProviderStore {
                 row.maxOutputTokens(),
                 decodeEnvVars(row.envVarsJson()),
                 row.isDefault());
+    }
+
+    private static boolean modelListsEqual(List<ModelState> left, List<ModelState> right) {
+        if (left == right) {
+            return true;
+        }
+        if (left == null || right == null || left.size() != right.size()) {
+            return false;
+        }
+        for (int i = 0; i < left.size(); i++) {
+            ModelState a = left.get(i);
+            ModelState b = right.get(i);
+            if (!java.util.Objects.equals(a.modelId, b.modelId)
+                    || !java.util.Objects.equals(a.displayName, b.displayName)
+                    || !java.util.Objects.equals(a.contextWindow, b.contextWindow)
+                    || !java.util.Objects.equals(a.maxOutputTokens, b.maxOutputTokens)
+                    || a.isDefault != b.isDefault
+                    || !envVarListsEqual(a.envVars, b.envVars)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean envVarListsEqual(List<EnvVarState> left, List<EnvVarState> right) {
+        if (left == right) {
+            return true;
+        }
+        if (left == null || right == null || left.size() != right.size()) {
+            return false;
+        }
+        for (int i = 0; i < left.size(); i++) {
+            EnvVarState a = left.get(i);
+            EnvVarState b = right.get(i);
+            if (!java.util.Objects.equals(a.key, b.key) || !java.util.Objects.equals(a.value, b.value)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private String resolveDefaultModelId(String providerCode, ProviderState state) {

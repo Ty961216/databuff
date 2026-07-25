@@ -39,15 +39,32 @@ class DorisAvailabilityMonitorTest {
     }
 
     @Test
-    void periodicProbeAlwaysForceReloadsWhenDorisUp() {
+    void periodicProbeDoesNotForceReloadWhenDorisStaysHealthy() {
         DorisAvailability availability = new DorisAvailability();
         PersistenceStartupHydrator hydrator = mock(PersistenceStartupHydrator.class);
+        org.mockito.Mockito.when(hydrator.isHydrateCompleted()).thenReturn(true);
         DorisAvailabilityMonitor monitor = newMonitor(availability, hydrator);
         monitor.overrideProbeResult(true);
         monitor.probeAtStartup();
         monitor.probePeriodically();
 
-        verify(hydrator).ensureHydrated(true);
+        // Healthy steady-state must not force-reload — that used to kill live AI sessions.
+        verify(hydrator, never()).ensureHydrated(true);
+        verify(hydrator, never()).ensureHydrated(false);
+    }
+
+    @Test
+    void periodicProbeSoftReloadsWhenHydrateStillIncomplete() {
+        DorisAvailability availability = new DorisAvailability();
+        PersistenceStartupHydrator hydrator = mock(PersistenceStartupHydrator.class);
+        org.mockito.Mockito.when(hydrator.isHydrateCompleted()).thenReturn(false);
+        DorisAvailabilityMonitor monitor = newMonitor(availability, hydrator);
+        monitor.overrideProbeResult(true);
+        monitor.probeAtStartup();
+        monitor.probePeriodically();
+
+        verify(hydrator).ensureHydrated(false);
+        verify(hydrator, never()).ensureHydrated(true);
     }
 
     @Test
