@@ -1,6 +1,62 @@
 # Changelog
 
-## [0.1.5] - 2026-07-21
+## [0.1.5] - 2026-07-27
+
+### Features
+
+- **OTLP compression**: ingest supports gzip / snappy / zstd (and HTTP zlib / deflate / lz4) on OTLP trace and metric payloads
+- **Span ignore lists**: drop spans by resource exact or regex ignore rules before fill and metrics
+- **Mermaid in AI chat**: experts can render topology and flow diagrams inline; prompts steer experts toward Mermaid for structure
+- **Log detail drawer**: right-side drawer loads full log fields on demand from the log list
+- **Size-based Doris flush**: thread-local buffers and size-triggered handoff reduce lock contention on high-throughput ingest
+
+### Improvements
+
+- **Doris write tuning**: default flush batch raised to 50 MiB; telemetry dynamic-partition buckets reduced from 16 to 3 (V005)
+- **HTTP span URL normalization**: unify resource-detail HTTP span queries on path-only `url`; normalize `meta.http.url` at ingest
+- **LLM config resilience**: reload LLM settings from Doris on every probe so keys survive full-server restarts
+- **JVM safety**: add `-XX:+ExitOnOutOfMemoryError` to ingest / web runtime images
+- **AI session stability**: pending tool recovery for all session-scoped experts; Doris hydrate no longer tears down live expert runtimes; Mermaid rendering stabilized
+- **AI test parallelism**: AI suites and cases run in parallel with same-session parallel fan-in expectations
+
+### Bug Fixes
+
+- Fix service instance metadata mapping edge cases
+- Fix Anthropic tool-call formatter and align tool-call content with input via middleware
+- Fix trace query error messaging when Doris tablet version graph is broken
+
+### Documentation
+
+- Migration guides and competitor comparison docs (Jaeger, SigNoz, SkyWalking, Pinpoint, OpenObserve)
+- Product intro and README updates; blog content
+
+### Deploy & Build
+
+- Docker / K8s / offline install scripts versioned to `0.1.5`
+- Schema migration V005: reduce dynamic-partition telemetry table buckets to 3
+
+### Full changelog
+
+Commits since `0.1.4`:
+
+- `35d3106` update docs
+- `3904f63` fix(ai): stabilize Mermaid chat rendering and prompt experts to use it for topology
+- `1429037` fix(ai): stop Doris hydrate from tearing down live expert session runtimes
+- `d29dc35` update doris flush max size to 50M
+- `6cabe39` update table buckets to 3
+- `edcd4b6` test(ai): run AI suites and cases in parallel
+- `ad5b2da` fix service instance meta bug
+- `46d7ec0` feat(ingest): size-based Doris flush with thread-local buffers
+- `54fe499` add -XX:+ExitOnOutOfMemoryError
+- `90c33a2` feat(ingest): drop spans by resource ignore lists
+- `ca7f53a` feat(ingest): support OTLP gzip/snappy/zstd compression
+- `aa7045f` fix: reload LLM config from Doris on every probe
+- `b907835` Add log detail drawer with on-demand full fields
+- `14c8d3c` fix(ai): align tool-call content with input via middleware
+- `f0f768b` support Mermaid
+- `53063b2` fix(ai): enable pending tool recovery for session-scoped experts
+- `da56fa6` fix(resource-detail): unify HTTP span queries on path-only url
+- `f114392` update to v0.1.5
 
 ## [0.1.4] - 2026-07-15
 
