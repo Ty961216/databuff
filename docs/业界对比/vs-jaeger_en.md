@@ -135,7 +135,10 @@ Screenshots from the same lab. Captions map to the matrix; focus on DataBuff’s
 
 ![DataBuff alerts](../images/vs-jg-databuff-alerts.png)
 
----
+## See also
+
+- [OpenTelemetry OTLP ingestion](/docs/en/guide/otel-otlp-ingestion)
+- [Migrate from Jaeger to DataBuff](/docs/en/migration/from-jaeger-to-databuff)
 
 If this was useful, a Star (and Issues / PRs) are welcome:  
 https://github.com/databufflabs/databuff

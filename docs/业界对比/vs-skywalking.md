@@ -33,7 +33,7 @@
 | 8. 接口级拓扑 | ❌ | ✅ 独立接口级拓扑 |
 | 9. 接口级调用分析（上下游指标 + 关联 Trace） | ❌ | ✅ 按接口看调用方 / 被调与耗时；可直接落到 Trace |
 | 10. 服务流（服务级 / 接口级 Trace 链路分析） | ❌ 拓扑只回答「连谁」，无服务流 | ✅ 按入口展开下游响应贡献度；支持服务级 / 接口级 Trace 链路视角 |
-| 11. 中间件 / 外部调用专页（库 / 缓存 / MQ / 外部服务） | ❌ 拓扑可见节点，无专页纵深 | ✅ 独立专页：数据库 / 缓存 / MQ / 外部服务 |
+| 11. 中间件 / 外部调用专页（库 / 缓存 / MQ / 外部服务） | ✅ Dashboard 中间件大盘（DB / 缓存 / MQ 等） | ✅ 独立 APM 专页 + 联动调用分析 / Trace |
 | 12. 错误分析（统计 + 接口级） | ❌ | ✅ 独立错误分析统计 + 接口级错误下钻 |
 | 13. Trace 列表 / 搜索 | ✅ 服务 / 端点 / 状态 / 耗时过滤 | ✅ 图表 + 列表，多维过滤 |
 | 14. Trace 详情 | ✅ Span 时间轴 / Tags | ✅ 调用次序瀑布图 + Span 属性 |
@@ -44,7 +44,7 @@
 | 19. Profiling（Tracing / AsyncProfiler / eBPF） | ✅ 三类均支持 | ❌ 暂不支持 |
 | 20. 仪表盘（可定制 Dashboard） | ✅ 内置 Dashboard；支持服务及各类中间件大盘（如 DB / 缓存 / MQ 等） | ❌ 暂不支持 |
 
-基础面（拓扑 / 服务列表 / Trace / 日志 / Span↔日志）两侧都有；DataBuff 领先在**服务级·实例级·接口级调用分析（含关联 Trace）**、**实例 / 接口级拓扑**、**服务流**、**专页与错误分析纵深**，以及 Log→Trace **落到具体 Span**。Profiling 与**可定制仪表盘（含各类中间件大盘）**是 SkyWalking 明显更强、DataBuff 暂未覆盖的两块。
+基础面（拓扑 / 服务列表 / Trace / 日志 / Span↔日志）两侧都有；SW 亦有中间件 Dashboard 大盘（见项 11 / 20）。DataBuff 领先在**服务级·实例级·接口级调用分析（含关联 Trace）**、**实例 / 接口级拓扑**、**服务流**、**APM 专页与调用分析 / Trace 联动**及**错误分析纵深**，以及 Log→Trace **落到具体 Span**。Profiling 与**可定制仪表盘深度**是 SkyWalking 明显更强、DataBuff 暂未覆盖的两块。
 
 **告警**
 
@@ -67,7 +67,7 @@
 | 要外接 MCP / Skill 或自定义数字专家 | DataBuff | AI 平台可外部拓展；SW 无此层 |
 | 要按入口服务看「谁拖慢了响应」 | DataBuff | 服务流 + 响应贡献度；SW 无等价页 |
 | 要从服务 / 实例 / 接口调用分析落到 Trace | DataBuff | 服务级 + 实例级 + 接口级调用分析均可关联 Trace；SW 无此路径 |
-| 要查慢 SQL / 缓存 / MQ 专页 | DataBuff | SW 多为拓扑节点级 |
+| 要查慢 SQL / 缓存 / MQ 并联动调用分析 / Trace | DataBuff | SW 有 Dashboard 大盘，缺 APM 专页与调用分析联动 |
 | 要做 Tracing / AsyncProfiler / eBPF Profiling | SkyWalking | 官方三类 Profiling；DataBuff 暂不支持 |
 | 要可定制仪表盘 / 中间件大盘 | SkyWalking | 服务 + 各类中间件 Dashboard；DataBuff 暂不支持 |
 | 只要轻量 Trace、不要 AI | 两者皆可 | 不必为换品牌迁移 |
@@ -128,7 +128,7 @@ SkyWalking 有全局 / 服务拓扑与实例指标，但**没有**服务级 / �
 
 ![SkyWalking Dashboard List](../images/vs-sw-skywalking-dashboard-list.png)
 
-**DataBuff 专页纵深**（对应上表数据库 / 缓存 / MQ / 外部 / 接口 / 错误；SkyWalking 无等价专页，不硬凑空对照）
+**DataBuff APM 专页**（对应上表 11 / 12；SW 侧中间件能力见上方 Dashboard 举证）
 
 ![数据库](../images/vs-sw-databuff-database.png)
 
@@ -142,7 +142,7 @@ SkyWalking 有全局 / 服务拓扑与实例指标，但**没有**服务级 / �
 
 ![错误分析](../images/vs-sw-databuff-errors.png)
 
-这些专页是「拓扑上能看见中间件」之后的纵深——相对 SkyWalking 最值得并跑验证的应用性能差异。
+这些专页体现 APM 一体化纵深——相对 SW Dashboard 中间件大盘，DataBuff 专页与调用分析 / 服务流 / Trace 联动更顺。
 
 **告警**
 
@@ -153,6 +153,6 @@ SkyWalking 有全局 / 服务拓扑与实例指标，但**没有**服务级 / �
 ## 延伸阅读
 
 - [SkyWalking 接入](/docs/zh/manual/skywalking-ingestion)
-- [迁移指南：从 SkyWalking 到 DataBuff](/docs/zh/migration/from-skywalking)（即将发布）
+- [迁移指南：从 SkyWalking 到 DataBuff](/docs/zh/migration/from-skywalking-to-databuff)
 
 欢迎 Star：https://github.com/databufflabs/databuff

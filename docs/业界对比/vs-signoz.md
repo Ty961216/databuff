@@ -147,6 +147,6 @@
 ## 延伸阅读
 
 - [SkyWalking 接入](/docs/zh/manual/skywalking-ingestion)（同为 OTel 选型时可对照）
-- [迁移指南：从 SigNoz 到 DataBuff](/docs/zh/migration/from-signoz)（即将发布）
+- [迁移指南：从 SigNoz 到 DataBuff](/docs/zh/migration/from-signoz-to-databuff)
 
 欢迎 Star：https://github.com/databufflabs/databuff

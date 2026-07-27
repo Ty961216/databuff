@@ -140,6 +140,6 @@ Screenshots from **192.168.50.140**.
 
 ## Further reading
 
-- [Migrate from SigNoz](/docs/en/migration/from-signoz) (coming soon)
+- [Migrate from SigNoz to DataBuff](/docs/en/migration/from-signoz-to-databuff)
 
 Star us: https://github.com/databufflabs/databuff

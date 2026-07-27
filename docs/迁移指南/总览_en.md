@@ -4,16 +4,15 @@
 
 This guide covers migrating from existing APM/observability systems to DataBuff.
 
-> ⚠️ Migration plans pending user confirmation. Detailed steps will be added once confirmed.
-
 | Source System | Migration Doc | Status |
 |---------------|---------------|--------|
-| SkyWalking | [From SkyWalking](./from-skywalking.md) | Pending confirmation |
-| Jaeger | [From Jaeger](./from-jaeger.md) | Pending confirmation |
-| Pinpoint | [From Pinpoint](./from-pinpoint.md) | Pending confirmation |
-| SigNoz | [From SigNoz](./from-signoz.md) | Pending confirmation |
-| OpenObserve | [From OpenObserve](./from-openobserve.md) | Pending confirmation |
+| SkyWalking | [From SkyWalking to DataBuff](./from-skywalking-to-databuff.md) | ✅ Published (retarget Agent backend) |
+| Jaeger | [From Jaeger to DataBuff](./from-jaeger-to-databuff.md) | ✅ Published (retarget OTLP endpoint) |
+| Pinpoint | [From Pinpoint to DataBuff](./from-pinpoint-to-databuff.md) | ✅ Published (swap probe + point to DataBuff) |
+| SigNoz | [From SigNoz to DataBuff](./from-signoz-to-databuff.md) | ✅ Published (retarget OTLP endpoint) |
+| OpenObserve | [From OpenObserve to DataBuff](./from-openobserve-to-databuff.md) | ✅ Published (retarget OTLP endpoint) |
 
 ## See Also
 
-- [Comparisons Overview](/docs/en/comparison/overview)
+- [DataBuff vs SkyWalking Write Performance](/blog/en/databuff-vs-skywalking-write-perf/)
+- [DataBuff vs SkyWalking](/docs/en/comparison/databuff-vs-skywalking)

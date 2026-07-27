@@ -66,6 +66,14 @@ curl -fsSL https://databuff.ai/databuff/ai-apm-install.sh | bash
 - [DataBuff vs Jaeger](业界对比/vs-jaeger.md)
 - [DataBuff vs SigNoz](业界对比/vs-signoz.md)
 
+### 迁移指南
+
+- [从 SkyWalking 迁移](迁移指南/from-skywalking-to-databuff.md)
+- [从 Jaeger 迁移](迁移指南/from-jaeger-to-databuff.md)
+- [从 Pinpoint 迁移](迁移指南/from-pinpoint-to-databuff.md)
+- [从 SigNoz 迁移](迁移指南/from-signoz-to-databuff.md)
+- [从 OpenObserve 迁移](迁移指南/from-openobserve-to-databuff.md)
+
 ## 核心链路
 
 ```mermaid

@@ -169,7 +169,10 @@ These pages are depth beyond “middleware Spans in Trace” — the APM differe
 
 ![DataBuff alerts](../images/vs-oo-databuff-alerts.png)
 
----
+## See also
+
+- [OpenTelemetry OTLP ingestion](/docs/en/guide/otel-otlp-ingestion)
+- [Migrate from OpenObserve to DataBuff](/docs/en/migration/from-openobserve-to-databuff)
 
 If this was useful, a Star (and Issues / PRs) are welcome:  
 https://github.com/databufflabs/databuff

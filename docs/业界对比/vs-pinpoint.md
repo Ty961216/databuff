@@ -138,6 +138,6 @@ Pinpoint 明显更强在 **Java 方法级 Call Tree** 与 **Server Map + Scatter
 
 - [快速入门：Docker 安装部署](/docs/zh/guide/docker-install)
 - [Agent 集成：Java OTel](/docs/zh/manual/agent-integration)
-- [迁移指南：从 Pinpoint 到 DataBuff](/docs/zh/migration/from-pinpoint)（即将发布）
+- [迁移指南：从 Pinpoint 到 DataBuff](/docs/zh/migration/from-pinpoint-to-databuff)
 
 欢迎 Star：https://github.com/databufflabs/databuff

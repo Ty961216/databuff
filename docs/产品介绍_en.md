@@ -6,6 +6,8 @@
 
 # Product Overview
 
+> Release notes live under sidebar **Release Notes** (e.g. [v0.1.5](/en/releases/0.1.5)).
+
 ## In One Sentence
 
 **AI-native OpenTelemetry APM** — ingest standard telemetry first, then let AI understand your system.

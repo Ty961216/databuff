@@ -122,6 +122,6 @@ All shots from **192.168.50.140**.
 
 - [Docker install](/docs/en/guide/docker-install)
 - [Java OTel agent](/docs/en/manual/agent-integration)
-- [Migrate from Pinpoint](/docs/en/migration/from-pinpoint) (coming soon)
+- [Migrate from Pinpoint to DataBuff](/docs/en/migration/from-pinpoint-to-databuff)
 
 Star us: https://github.com/databufflabs/databuff

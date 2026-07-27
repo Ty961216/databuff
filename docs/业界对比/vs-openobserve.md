@@ -167,8 +167,11 @@ DataBuff 专页纵深 （对应上表数据库 / 缓存 / MQ / 外部 / 接口 /
 
 ![DataBuff 告警中心](../images/vs-oo-databuff-alerts.png)
 
-觉得有用的话，欢迎给我们一个 Star：
+## 延伸阅读
 
-GitHub：https://github.com/databufflabs/databuff
+- [OpenTelemetry OTLP 接入](/docs/zh/guide/otel-otlp-ingestion)
+- [迁移指南：从 OpenObserve 到 DataBuff](/docs/zh/migration/from-openobserve-to-databuff)
+
+欢迎 Star：https://github.com/databufflabs/databuff
 
 在线 Demo：https://demo.databuff.ai

@@ -33,7 +33,7 @@ Largest gap: SkyWalking has no equivalent AI platform; DataBuff exposes the seve
 | 8. Endpoint topology | ❌ | ✅ Dedicated endpoint topology |
 | 9. Endpoint call analysis (up/downstream + Trace) | ❌ | ✅ Per-endpoint caller/callee + Trace |
 | 10. Service flow (service / endpoint Trace contribution) | ❌ Topology answers “who connects”, no service flow | ✅ Response contribution from entry; service / endpoint Trace view |
-| 11. Middleware / external pages (DB / cache / MQ / external) | ❌ Nodes only, no dedicated depth | ✅ Dedicated pages: DB / cache / MQ / external |
+| 11. Middleware / external pages (DB / cache / MQ / external) | ✅ Dashboard middleware boards (DB / cache / MQ, …) | ✅ Dedicated APM pages + linked call analysis / Trace |
 | 12. Error analysis (stats + endpoint) | ❌ | ✅ Error stats + endpoint drill-down |
 | 13. Trace list / search | ✅ Service / endpoint / status / latency filters | ✅ Charts + list, multi-dimension filters |
 | 14. Trace detail | ✅ Span timeline / Tags | ✅ Call-order waterfall + Span attributes |
@@ -44,7 +44,7 @@ Largest gap: SkyWalking has no equivalent AI platform; DataBuff exposes the seve
 | 19. Profiling (Tracing / AsyncProfiler / eBPF) | ✅ All three | ❌ Not yet |
 | 20. Custom dashboards | ✅ Built-in; service + middleware boards | ❌ Not yet |
 
-Basics (incl. Span↔logs) exist on both sides; DataBuff leads on call analysis, instance/endpoint topology, service flow, dedicated pages and error depth, and Log→Trace down to Span. Profiling and custom dashboards are SkyWalking strengths DataBuff does not cover yet.
+Basics (incl. Span↔logs) exist on both sides; SW also has middleware Dashboard boards (rows 11 / 20). DataBuff leads on call analysis, instance/endpoint topology, service flow, **APM pages linked to call analysis / Trace**, error depth, and Log→Trace down to Span. Profiling and **dashboard customization depth** are SkyWalking strengths DataBuff does not cover yet.
 
 **Alerting**
 
@@ -67,7 +67,7 @@ Gaps are at both ends: **how to configure** (backend file vs alert center) and *
 | MCP / Skill / custom experts | DataBuff | SW has no such layer |
 | See who slows the entry response | DataBuff | Service flow + contribution |
 | Call analysis → Trace (service / instance / endpoint) | DataBuff | No SW path |
-| Slow SQL / cache / MQ pages | DataBuff | SW mostly topology nodes |
+| Slow SQL / cache / MQ with call analysis / Trace linkage | DataBuff | SW has Dashboard boards; lacks APM pages + call-analysis linkage |
 | Tracing / AsyncProfiler / eBPF Profiling | SkyWalking | DataBuff not yet |
 | Custom dashboards / middleware boards | SkyWalking | DataBuff not yet |
 | Lightweight Trace only, no AI | Either | No need to migrate for brand |
@@ -128,7 +128,7 @@ SkyWalking has global/service topology and instance metrics, but **no** service 
 
 ![SkyWalking Dashboard List](../images/vs-sw-skywalking-dashboard-list.png)
 
-**DataBuff dedicated pages** (DB / cache / MQ / external / API / errors; no SW equivalent pages)
+**DataBuff APM pages** (rows 11 / 12; SW middleware via Dashboard evidence above)
 
 ![Database](../images/vs-sw-databuff-database.png)
 
@@ -142,7 +142,7 @@ SkyWalking has global/service topology and instance metrics, but **no** service 
 
 ![Errors](../images/vs-sw-databuff-errors.png)
 
-These pages are the depth after “middleware appears on topology” — the APM difference most worth validating side-by-side.
+These pages show integrated APM depth — vs SW Dashboard middleware boards, DataBuff pages link more smoothly to call analysis, service flow, and Trace.
 
 **Alerting**
 
@@ -153,6 +153,6 @@ These pages are the depth after “middleware appears on topology” — the APM
 ## Further reading
 
 - [SkyWalking ingestion](/docs/en/manual/skywalking-ingestion)
-- [Migrate from SkyWalking](/docs/en/migration/from-skywalking) (coming soon)
+- [Migrate from SkyWalking to DataBuff](/docs/en/migration/from-skywalking-to-databuff)
 
 Star us: https://github.com/databufflabs/databuff

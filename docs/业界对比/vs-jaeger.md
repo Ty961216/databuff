@@ -139,7 +139,9 @@ Jaeger Dependencies 只回答「连谁」，没有服务级 / 实例级 / 接口
 
 ![DataBuff 告警中心](../images/vs-jg-databuff-alerts.png)
 
----
+## 延伸阅读
 
-觉得有用的话，欢迎给我们一个 Star，也欢迎提 Issue / PR：  
-https://github.com/databufflabs/databuff
+- [OpenTelemetry OTLP 接入](/docs/zh/guide/otel-otlp-ingestion)
+- [迁移指南：从 Jaeger 到 DataBuff](/docs/zh/migration/from-jaeger-to-databuff)
+
+欢迎 Star：https://github.com/databufflabs/databuff

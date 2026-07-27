@@ -66,6 +66,14 @@ Online docs: [databuff.ai/docs](https://databuff.ai/docs/en/)
 - [DataBuff vs Jaeger](业界对比/vs-jaeger_en.md)
 - [DataBuff vs SigNoz](业界对比/vs-signoz_en.md)
 
+### Migration
+
+- [From SkyWalking](迁移指南/from-skywalking-to-databuff_en.md)
+- [From Jaeger](迁移指南/from-jaeger-to-databuff_en.md)
+- [From Pinpoint](迁移指南/from-pinpoint-to-databuff_en.md)
+- [From SigNoz](迁移指南/from-signoz-to-databuff_en.md)
+- [From OpenObserve](迁移指南/from-openobserve-to-databuff_en.md)
+
 ## Core Pipeline
 
 ```mermaid
