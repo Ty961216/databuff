@@ -732,6 +732,40 @@ public class AiSessionStore {
         return listMessages(sessionId);
     }
 
+    /**
+     * Latest USER message content for the given round (fallback: any latest USER in session).
+     */
+    public java.util.Optional<String> findRoundUserMessage(String sessionId, int roundIndex) {
+        List<ChatMessage> all = listMessages(sessionId);
+        String forRound = null;
+        String latestAny = null;
+        for (ChatMessage message : all) {
+            if (!isUserMessage(message)) {
+                continue;
+            }
+            String content = message.content();
+            if (content == null || content.isBlank()) {
+                continue;
+            }
+            latestAny = content;
+            if (message.roundIndex() == roundIndex) {
+                forRound = content;
+            }
+        }
+        if (forRound != null && !forRound.isBlank()) {
+            return java.util.Optional.of(forRound.trim());
+        }
+        if (latestAny != null && !latestAny.isBlank()) {
+            return java.util.Optional.of(latestAny.trim());
+        }
+        return java.util.Optional.empty();
+    }
+
+    private static boolean isUserMessage(ChatMessage message) {
+        return AiMessageType.USER.name().equals(message.messageType())
+                || "user".equalsIgnoreCase(message.role());
+    }
+
     public List<ChatMessage> listMessages(String sessionId) {
         SessionState state = sessions.get(sessionId);
         return state == null ? List.of() : mergedMessages(state);

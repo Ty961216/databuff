@@ -173,6 +173,7 @@ public class ExpertManagementService {
                     || (missingMermaidHint && systemPrompt.startsWith("你是 DataBuff APM 智能问数专家"));
             case "brain" -> systemPrompt.startsWith("You are the DataBuff APM brain expert")
                     || systemPrompt.contains("Your primary job is routing")
+                    || systemPrompt.contains("派发时 `task` 须忠实转述用户原意")
                     || (missingMermaidHint && systemPrompt.startsWith("你是 DataBuff APM 的 AI 大脑"));
             case "inspection" -> missingMermaidHint
                     && systemPrompt.startsWith("你是 DataBuff APM 智能巡检专家，负责对服务健康状态做初步异常检测");

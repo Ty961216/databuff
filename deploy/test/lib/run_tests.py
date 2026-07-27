@@ -671,7 +671,11 @@ def main() -> int:
                         elapsed_ms=item.elapsed_ms,
                         detail=item.detail,
                         expected_file="ai-brain-async/session-parallel-fan-in",
-                        expected_json="same-session parallel fan-in; cross-session isolation",
+                        expected_json=(
+                            "same-session parallel fan-in; cross-session isolation; "
+                            "multi-expert splits: ERROR/latency→inspect→report, "
+                            "inspect∥ops, data→ops, data+qa, data→inspect"
+                        ),
                     )
                 )
                 report.total += 1

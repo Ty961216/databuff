@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""AI 集成测试 runner — 四套件可分别跑，默认并行（禁止串行叠跑）。
+"""AI 集成测试 runner — 四套件可分别跑，**始终并行**（禁止串行叠跑）。
 
 套件：
   - chat      工具参数校验
@@ -11,11 +11,6 @@
   - chat：已启用 LLM provider（TEST_SKIP_AI_CHAT=1 跳过）
   - formats：DEEPSEEK_API_KEY / MINIMAX_API_KEY（TEST_SKIP_AI_PROVIDER_FORMATS=1 跳过）
   - memory / brain：DEEPSEEK_API_KEY（TEST_SKIP_AI_MEMORY / TEST_SKIP_AI_BRAIN_ASYNC 跳过）
-
-并行：
-  - ``--suite all``（默认）且 ``AI_TESTS_PARALLEL=1``（默认）：四套件 ThreadPool 并行
-  - 发布门禁推荐 ``ai-tests.sh`` 分进程并行（每套件独立进程）
-  - ``AI_TESTS_PARALLEL=0`` 或 ``--serial``：仅调试用串行
 """
 
 from __future__ import annotations
@@ -190,13 +185,7 @@ def main() -> int:
         "--suite",
         choices=(*SUITES, "all"),
         default=os.environ.get("TEST_AI_SUITE", "all"),
-        help="run one suite, or all (default: all, parallel)",
-    )
-    parser.add_argument(
-        "--serial",
-        action="store_true",
-        default=os.environ.get("AI_TESTS_PARALLEL", "1") == "0",
-        help="run suites serially (debug only; release gate must use parallel)",
+        help="run one suite, or all (always parallel)",
     )
     args = parser.parse_args()
 
@@ -210,9 +199,9 @@ def main() -> int:
     format_rounds = int(os.environ.get("TEST_AI_PROVIDER_FORMAT_ROUNDS", "1"))
     format_poll_timeout = float(os.environ.get("TEST_AI_PROVIDER_FORMAT_POLL_TIMEOUT", "180"))
     memory_poll_timeout = float(os.environ.get("TEST_AI_MEMORY_POLL_TIMEOUT", "240"))
-    brain_async_poll_timeout = float(os.environ.get("TEST_AI_BRAIN_ASYNC_POLL_TIMEOUT", "300"))
+    brain_async_poll_timeout = float(os.environ.get("TEST_AI_BRAIN_ASYNC_POLL_TIMEOUT", "900"))
 
-    print(f"[ai-tests] login {base} suite={args.suite} parallel={not args.serial} ...", flush=True)
+    print(f"[ai-tests] login {base} suite={args.suite} parallel=True ...", flush=True)
     token = login(base, username, password, timeout)
 
     if deepseek_api_key():
@@ -228,7 +217,7 @@ def main() -> int:
     selected = list(SUITES) if args.suite == "all" else [args.suite]
     outcomes: list[SuiteOutcome] = []
 
-    if args.suite == "all" and not args.serial and len(selected) > 1:
+    if args.suite == "all" and len(selected) > 1:
         print("[ai-tests] launching suites in parallel (ThreadPool) ...", flush=True)
         with ThreadPoolExecutor(max_workers=len(selected)) as pool:
             futs = {pool.submit(runners[name]): name for name in selected}
@@ -236,8 +225,6 @@ def main() -> int:
                 outcomes.append(fut.result())
         outcomes.sort(key=lambda o: selected.index(o.suite))
     else:
-        if args.suite == "all" and args.serial:
-            print("[ai-tests] WARNING: serial mode (debug only)", flush=True)
         for name in selected:
             outcomes.append(runners[name]())
 

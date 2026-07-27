@@ -37,7 +37,7 @@ public class ExpertDispatchTool {
     public String dispatchExpertTask(
             @ToolParam(name = "targetExpertId", description = "Target expert id from the brain's available digital experts catalog")
             String targetExpertId,
-            @ToolParam(name = "task", description = "Task for the target expert; faithfully restate the user's request only—do not expand scope or add metrics/fields the user did not ask for")
+            @ToolParam(name = "task", description = "Task for the target expert: if one expert can finish the user request, pass the full user request; if multi-expert/step, pass organized info covering that step's goals without dropping user requirements or inventing extra metrics/fields")
             String task,
             @ToolParam(name = "contextJson", required = false, description = "Optional JSON context")
             String contextJson,

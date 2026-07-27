@@ -30,7 +30,7 @@ public final class ExpertMessageContext {
             String targetExpertId,
             String text,
             boolean failure) {
-        return wrapBrainContinuation(sessionId, roundIndex, taskId, targetExpertId, text, failure, true);
+        return wrapBrainContinuation(sessionId, roundIndex, taskId, targetExpertId, text, failure, true, null);
     }
 
     /**
@@ -44,12 +44,30 @@ public final class ExpertMessageContext {
             String text,
             boolean failure,
             boolean allAsyncComplete) {
+        return wrapBrainContinuation(
+                sessionId, roundIndex, taskId, targetExpertId, text, failure, allAsyncComplete, null);
+    }
+
+    /**
+     * @param allAsyncComplete after pending-1 for this response, whether session pending reached 0
+     * @param originalUserRequest verbatim user message for this round (helps multi-step follow-up)
+     */
+    public static String wrapBrainContinuation(
+            String sessionId,
+            int roundIndex,
+            String taskId,
+            String targetExpertId,
+            String text,
+            boolean failure,
+            boolean allAsyncComplete,
+            String originalUserRequest) {
         String header = failure
                 ? "[数字专家 " + targetExpertId + " · taskId=" + taskId + " · 失败]\n---\n"
                 : "[数字专家 " + targetExpertId + " · taskId=" + taskId + " · 已完成]\n---\n";
         String body = text == null ? "" : text;
         return wrapTaskInput(sessionId, roundIndex, taskId, targetExpertId, header + body)
-                + ExpertMessageConstants.expertResultContinueHint(failure, allAsyncComplete);
+                + ExpertMessageConstants.expertResultContinueHint(
+                        failure, allAsyncComplete, originalUserRequest);
     }
 
     public static Map<String, Object> taskMetadata(

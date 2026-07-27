@@ -241,6 +241,8 @@ public class AiChatOrchestrator implements BrainRoundContinuer {
         expertTaskPendingRegistry.removePending(sessionId, event.taskId());
         boolean allAsyncComplete = !expertTaskPendingRegistry.hasPending(sessionId);
         AiExpertDefinition expert = resolveExpert("brain");
+        String originalUserRequest = sessionStore.findRoundUserMessage(sessionId, event.roundIndex())
+                .orElse(null);
         String continuation = ExpertMessageContext.wrapBrainContinuation(
                 sessionId,
                 event.roundIndex(),
@@ -248,7 +250,8 @@ public class AiChatOrchestrator implements BrainRoundContinuer {
                 event.targetExpertId(),
                 event.text(),
                 event.failure(),
-                allAsyncComplete);
+                allAsyncComplete,
+                originalUserRequest);
         Map<String, Object> context = new LinkedHashMap<>();
         context.put(ExpertMessageConstants.META_TRIGGER_SOURCE, ExpertMessageConstants.TRIGGER_EXPERT_RESULT);
         context.put(ExpertMessageConstants.META_TASK_ID, event.taskId());

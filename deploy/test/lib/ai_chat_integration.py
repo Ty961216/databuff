@@ -156,11 +156,9 @@ def run_ai_chat_tool_loop(
 ) -> list[AiChatCaseResult]:
     """Run data-expert chat cases; each question is its own session.
 
-    Within a round, questions run **in parallel** (independent sessions).
-    Set ``AI_CHAT_CASES_PARALLEL=0`` only for local debug serial.
+    Within a round, questions always run in parallel (independent sessions).
     """
     question_list = questions if questions is not None else AI_CHAT_QUESTIONS
-    parallel = os.environ.get("AI_CHAT_CASES_PARALLEL", "1") != "0"
     results: list[AiChatCaseResult] = []
 
     def _one(round_no: int, tool_hint: str, question: str) -> AiChatCaseResult:
@@ -193,7 +191,7 @@ def run_ai_chat_tool_loop(
             return AiChatCaseResult(tool_hint, name, "", False, elapsed_ms, str(error))
 
     for round_no in range(1, rounds + 1):
-        if not parallel or len(question_list) <= 1:
+        if len(question_list) <= 1:
             for tool_hint, question in question_list:
                 results.append(_one(round_no, tool_hint, question))
             continue

@@ -1,19 +1,28 @@
-"""AI brain 异步路由集成测试 — 同 session 并行 fan-in、跨 session 隔离.
+"""AI brain 异步路由集成测试 — 同 session 并行 fan-in、跨 session 隔离、多专家拆分多步。
 
 由 ``DEEPSEEK_API_KEY`` 门控（与会话记忆用例一致）：
   - 未设置 → 跳过
-  - 已设置 → 配置 deepseek 后跑 brain 并行派发 / 双 session 并发
+  - 已设置 → 配置 deepseek 后跑 brain 并行派发 / 双 session 并发 / 多步拆分
 
-用例彼此独立（各 session），默认 ThreadPool **并行**执行，禁止套件内串行叠跑。
+多专家拆分类覆盖（断言已收紧）：
+  - data→inspection(+报告)：data task 口径词、串行时序、服务名交接、inspection 要求出报告、必须有 HTML
+  - inspection∥ops：时间窗重叠、ops 含 docker+容器名、inspection 含 service-a
+  - data→ops：串行、data 含 ERROR、ops 含 docker/ai-apm-web、服务名交接/终答回引
+  - data+qa：data 含服务列表语义、qa 含界面/入口类词
+  - data→inspection（无报告）：串行、指标词、禁止 HTML/禁止正向出报告 task
+
+用例彼此独立（各 session），**始终并行**执行（禁止套件内串行叠跑）。超时下限 900s。
 """
 
 from __future__ import annotations
 
 import os
+import re
 import time
 import urllib.error
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 from ai_chat_integration import _http_json, _poll_session
@@ -131,6 +140,176 @@ def _expert_ids_with_deliverable(payload: dict[str, Any]) -> set[str]:
             if expert:
                 found.add(expert)
     return found
+
+
+def _task_inputs_for(tasks: list[dict[str, Any]], target_expert_id: str) -> list[str]:
+    inputs: list[str] = []
+    for task in tasks:
+        if str(task.get("targetExpertId") or "") != target_expert_id:
+            continue
+        raw = task.get("input")
+        if isinstance(raw, str) and raw.strip():
+            inputs.append(raw)
+    return inputs
+
+
+def _joined_task_field(tasks: list[dict[str, Any]], target_expert_id: str, field: str) -> str:
+    parts: list[str] = []
+    for task in tasks:
+        if str(task.get("targetExpertId") or "") != target_expert_id:
+            continue
+        raw = task.get(field)
+        if isinstance(raw, str) and raw.strip():
+            parts.append(raw)
+    return "\n".join(parts)
+
+
+def _text_has_any(text: str, needles: tuple[str, ...]) -> bool:
+    if not needles:
+        return True
+    lower = (text or "").lower()
+    return any(n.lower() in lower for n in needles)
+
+
+def _text_has_all(text: str, needles: tuple[str, ...]) -> bool:
+    if not needles:
+        return True
+    lower = (text or "").lower()
+    return all(n.lower() in lower for n in needles)
+
+
+_SERVICE_TOKEN_RE = re.compile(
+    r"service-[a-zA-Z0-9_-]+|"
+    r"\[[^\]]+\][^\s,，;；]{1,64}"
+)
+
+
+def _service_tokens(text: str) -> set[str]:
+    return {m.group(0) for m in _SERVICE_TOKEN_RE.finditer(text or "")}
+
+
+def _normalize_iso_timestamp(raw: str) -> str:
+    """Normalize API timestamps for datetime.fromisoformat (truncate ns → µs)."""
+    s = raw.strip().replace("Z", "+00:00")
+    match = re.match(
+        r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(\.\d+)?(.*)$",
+        s,
+    )
+    if not match:
+        return s
+    base, frac, rest = match.group(1), match.group(2), match.group(3) or ""
+    if frac:
+        digits = frac[1:]  # drop leading dot
+        if len(digits) > 6:
+            digits = digits[:6]
+        frac = "." + digits
+    return base + (frac or "") + rest
+
+
+def _parse_iso_ts(value: Any) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    raw = str(value).strip()
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(_normalize_iso_timestamp(raw)).timestamp()
+    except ValueError:
+        return None
+
+
+def _first_task(tasks: list[dict[str, Any]], target_expert_id: str) -> dict[str, Any] | None:
+    for task in tasks:
+        if str(task.get("targetExpertId") or "") == target_expert_id:
+            return task
+    return None
+
+
+def _task_interval(task: dict[str, Any] | None) -> tuple[float, float] | None:
+    if not task:
+        return None
+    start = _parse_iso_ts(task.get("createdAt"))
+    if start is None:
+        return None
+    end = _parse_iso_ts(task.get("completedAt"))
+    if end is None:
+        end = _parse_iso_ts(task.get("updatedAt"))
+    if end is None:
+        end = start
+    if end < start:
+        end = start
+    return start, end
+
+
+def _dispatch_serial(tasks: list[dict[str, Any]], earlier: str, later: str) -> bool:
+    """True when first `earlier` task was created before first `later` task."""
+    a = _task_interval(_first_task(tasks, earlier))
+    b = _task_interval(_first_task(tasks, later))
+    if not a or not b:
+        return False
+    return a[0] <= b[0]
+
+
+def _dispatch_overlap(tasks: list[dict[str, Any]], left: str, right: str) -> bool:
+    """True when the two experts' task time ranges overlap (parallel fan-out)."""
+    a = _task_interval(_first_task(tasks, left))
+    b = _task_interval(_first_task(tasks, right))
+    if not a or not b:
+        return False
+    return a[0] <= b[1] and b[0] <= a[1]
+
+
+def _task_requests_report(text: str) -> bool:
+    """Positive request to generate an inspection report (ignores explicit negations)."""
+    t = text or ""
+    if re.search(r"(不需要|不要|无需|勿|禁止).{0,12}(生成)?\s*(HTML)?\s*巡检报告", t, re.I):
+        return False
+    if re.search(r"(不需要|不要|无需|勿|禁止).{0,12}(HTML\s*)?报告", t, re.I):
+        return False
+    return bool(
+        re.search(
+            r"(并)?生成巡检报告|写出\s*HTML|inspection-report|\.html",
+            t,
+            re.I,
+        )
+    )
+
+
+def _has_generated_html(payload: dict[str, Any], tasks: list[dict[str, Any]]) -> bool:
+    """True if session messages or task metadata reference an HTML output under outputs/."""
+
+    def _scan_files(raw: Any) -> bool:
+        if not isinstance(raw, list):
+            return False
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            path = str(item.get("filePath") or item.get("path") or item.get("fileName") or "")
+            if path.lower().endswith(".html") or path.lower().endswith(".htm"):
+                return True
+        return False
+
+    for message in _messages(payload):
+        meta = message.get("metadata") or {}
+        if _scan_files(meta.get("generatedFiles")):
+            return True
+        if _scan_files(meta.get("attachments")):
+            return True
+    for task in tasks:
+        meta = task.get("metadata") or {}
+        if isinstance(meta, dict) and _scan_files(meta.get("generatedFiles")):
+            return True
+    # Fallback: tool call wrote an html file
+    for message in _messages(payload):
+        if str(message.get("toolName") or "") != "writeWorkspaceFile":
+            continue
+        meta = message.get("metadata") or {}
+        tool_input = str(meta.get("toolInput") or "")
+        if ".html" in tool_input.lower() or ".htm" in tool_input.lower():
+            return True
+    return False
 
 
 def _case(name: str, ok: bool, session_id: str, started: float, detail: str) -> BrainAsyncCaseResult:
@@ -396,6 +575,361 @@ def _run_multi_round_dispatch_case(
         return _case("多轮派发", False, sid, started, str(error))
 
 
+def _run_multi_step_inspect_report_case(
+    base: str,
+    token: str,
+    *,
+    poll_interval_sec: float,
+    poll_timeout_sec: float,
+) -> BrainAsyncCaseResult:
+    """回归：先定位 ERROR 最多服务，再巡检并生成报告（同轮多步，勿在问数后终答）。"""
+    return _run_locate_then_inspect_report_case(
+        base,
+        token,
+        case_name="多步定位后巡检并出报告",
+        user_message=(
+            "找出最近 1 小时日志ERROR最多的服务，对它做一次巡检，并生成巡检报告。"
+            "不要只回复请稍候。"
+        ),
+        data_needles_any=("ERROR", "error", "错误日志", "错误"),
+        poll_interval_sec=poll_interval_sec,
+        poll_timeout_sec=poll_timeout_sec,
+    )
+
+
+def _run_multi_step_latency_inspect_report_case(
+    base: str,
+    token: str,
+    *,
+    poll_interval_sec: float,
+    poll_timeout_sec: float,
+) -> BrainAsyncCaseResult:
+    """多步：定位平均响应时间最高服务 → 巡检 → 出报告（问数口径与 ERROR 场景不同）。"""
+    return _run_locate_then_inspect_report_case(
+        base,
+        token,
+        case_name="多步延迟最高服务巡检出报告",
+        user_message=(
+            "找出最近 1 小时平均响应时间最高的服务，对它做一次巡检，并生成巡检报告。"
+            "不要只回复请稍候。"
+        ),
+        data_needles_any=("响应时间", "耗时", "平均响应"),
+        poll_interval_sec=poll_interval_sec,
+        poll_timeout_sec=poll_timeout_sec,
+    )
+
+
+def _run_locate_then_inspect_report_case(
+    base: str,
+    token: str,
+    *,
+    case_name: str,
+    user_message: str,
+    data_needles_any: tuple[str, ...],
+    poll_interval_sec: float,
+    poll_timeout_sec: float,
+) -> BrainAsyncCaseResult:
+    started = time.time()
+    sid = ""
+    try:
+        sid = _submit_brain(base, token, user_message)
+        effective_timeout = max(float(poll_timeout_sec), 900.0)
+        payload = _poll_session(base, token, sid, poll_interval_sec, effective_timeout)
+        tasks = _session_tasks(base, token, sid)
+        targets = {str(t.get("targetExpertId") or "") for t in tasks}
+        data_input = _joined_task_field(tasks, "data", "input")
+        data_output = _joined_task_field(tasks, "data", "output")
+        inspection_input = _joined_task_field(tasks, "inspection", "input")
+        final_text = _round_final_brain_text(payload) or ""
+        waiting_only = any(m in final_text for m in WAITING_MARKERS) and len(final_text) < 120
+
+        has_data = "data" in targets
+        has_inspection = "inspection" in targets
+        data_metric_ok = _text_has_any(data_input, data_needles_any)
+        report_in_task = _task_requests_report(inspection_input)
+        has_html = _has_generated_html(payload, tasks)
+        serial_ok = _dispatch_serial(tasks, "data", "inspection")
+
+        # Handoff: inspection task must reuse a concrete service discovered by data when available.
+        data_services = _service_tokens(data_input + "\n" + data_output)
+        inspection_services = _service_tokens(inspection_input)
+        data_named = {s for s in data_services if s.lower().startswith("service-")}
+        if data_named:
+            handoff_ok = bool(data_named & {s for s in inspection_services})
+        else:
+            handoff_ok = bool(inspection_services)
+        ok = (
+            has_data
+            and has_inspection
+            and data_metric_ok
+            and report_in_task
+            and has_html
+            and serial_ok
+            and handoff_ok
+            and bool(final_text.strip())
+            and not waiting_only
+        )
+        detail = (
+            f"targets={sorted(targets)} data_metric_ok={data_metric_ok} "
+            f"report_in_task={report_in_task} has_html={has_html} serial_ok={serial_ok} "
+            f"handoff_ok={handoff_ok} data_services={sorted(data_named)[:5]} "
+            f"inspection_input={inspection_input[:160]!r} final={final_text[:180]!r}"
+        )
+        return _case(case_name, ok, sid, started, detail)
+    except (urllib.error.URLError, TimeoutError, RuntimeError) as error:
+        return _case(case_name, False, sid, started, str(error))
+
+
+def _run_multi_expert_split_case(
+    base: str,
+    token: str,
+    *,
+    case_name: str,
+    user_message: str,
+    required_experts: set[str],
+    poll_interval_sec: float,
+    poll_timeout_sec: float,
+    min_timeout_sec: float = 360.0,
+    require_final_mentions: tuple[str, ...] = (),
+    require_final_mentions_any: tuple[str, ...] = (),
+    task_must_contain: dict[str, tuple[str, ...]] | None = None,
+    task_must_contain_any: dict[str, tuple[str, ...]] | None = None,
+    require_serial: tuple[str, str] | None = None,
+    require_parallel_overlap: tuple[str, str] | None = None,
+    require_html: bool | None = None,
+    forbid_report_request_experts: tuple[str, ...] = (),
+    require_service_handoff: tuple[str, str] | None = None,
+) -> BrainAsyncCaseResult:
+    """通用：同轮拆分派发多个专家，并严格检查 task 内容、时序与交付物。"""
+    started = time.time()
+    sid = ""
+    try:
+        sid = _submit_brain(base, token, user_message)
+        effective_timeout = max(float(poll_timeout_sec), float(min_timeout_sec))
+        payload = _poll_session(base, token, sid, poll_interval_sec, effective_timeout)
+        tasks = _session_tasks(base, token, sid)
+        targets = {str(t.get("targetExpertId") or "") for t in tasks}
+        final_text = _round_final_brain_text(payload) or ""
+        waiting_only = any(m in final_text for m in WAITING_MARKERS) and len(final_text) < 120
+        missing = sorted(required_experts - targets)
+
+        task_checks: dict[str, bool] = {}
+        for expert_id, needles in (task_must_contain or {}).items():
+            inputs = _joined_task_field(tasks, expert_id, "input")
+            task_checks[f"{expert_id}:all"] = _text_has_all(inputs, needles)
+        for expert_id, needles in (task_must_contain_any or {}).items():
+            inputs = _joined_task_field(tasks, expert_id, "input")
+            task_checks[f"{expert_id}:any"] = _text_has_any(inputs, needles)
+
+        serial_ok = True
+        if require_serial:
+            serial_ok = _dispatch_serial(tasks, require_serial[0], require_serial[1])
+
+        overlap_ok = True
+        if require_parallel_overlap:
+            overlap_ok = _dispatch_overlap(
+                tasks, require_parallel_overlap[0], require_parallel_overlap[1]
+            )
+
+        has_html = _has_generated_html(payload, tasks)
+        html_ok = True if require_html is None else (has_html is require_html)
+
+        report_forbid_ok = True
+        for expert_id in forbid_report_request_experts:
+            if _task_requests_report(_joined_task_field(tasks, expert_id, "input")):
+                report_forbid_ok = False
+                break
+
+        handoff_ok = True
+        handoff_detail = ""
+        if require_service_handoff:
+            src, dst = require_service_handoff
+            src_text = (
+                _joined_task_field(tasks, src, "input")
+                + "\n"
+                + _joined_task_field(tasks, src, "output")
+            )
+            dst_text = _joined_task_field(tasks, dst, "input")
+            src_services = {s for s in _service_tokens(src_text) if s.lower().startswith("service-")}
+            dst_services = _service_tokens(dst_text)
+            final_services = _service_tokens(final_text)
+            if src_services:
+                # Prefer explicit handoff into next expert task; allow final synthesis as fallback.
+                handoff_ok = bool(src_services & dst_services) or bool(src_services & final_services)
+            else:
+                handoff_ok = bool(dst_services) or bool(final_services)
+            handoff_detail = (
+                f"src={sorted(src_services)[:5]} dst={sorted(dst_services)[:5]} "
+                f"final_svc={sorted(final_services)[:5]}"
+            )
+
+        mentions_ok = all(m in final_text for m in require_final_mentions) if require_final_mentions else True
+        mentions_any_ok = (
+            _text_has_any(final_text, require_final_mentions_any)
+            if require_final_mentions_any
+            else True
+        )
+
+        ok = (
+            not missing
+            and all(task_checks.values())
+            and serial_ok
+            and overlap_ok
+            and html_ok
+            and report_forbid_ok
+            and handoff_ok
+            and bool(final_text.strip())
+            and not waiting_only
+            and mentions_ok
+            and mentions_any_ok
+        )
+        detail = (
+            f"targets={sorted(targets)} missing={missing} task_checks={task_checks} "
+            f"serial_ok={serial_ok} overlap_ok={overlap_ok} html_ok={html_ok} "
+            f"has_html={has_html} report_forbid_ok={report_forbid_ok} "
+            f"handoff_ok={handoff_ok} {handoff_detail} "
+            f"mentions_ok={mentions_ok} mentions_any_ok={mentions_any_ok} "
+            f"final={final_text[:200]!r}"
+        )
+        return _case(case_name, ok, sid, started, detail)
+    except (urllib.error.URLError, TimeoutError, RuntimeError) as error:
+        return _case(case_name, False, sid, started, str(error))
+
+
+def _run_parallel_inspect_and_ops_case(
+    base: str,
+    token: str,
+    *,
+    poll_interval_sec: float,
+    poll_timeout_sec: float,
+) -> BrainAsyncCaseResult:
+    """并行拆分：业务健康巡检 + 本机运维排查（inspection + ops）。"""
+    return _run_multi_expert_split_case(
+        base,
+        token,
+        case_name="并行拆分巡检与运维",
+        user_message=(
+            "service-a 最近可能有业务异常，也怀疑本机运行环境有问题。"
+            "请分别派发巡检专家对 service-a 做健康巡检，并派发运维专家检查本机 docker 中 "
+            "ai-apm-web / ai-apm-ingest 容器是否在运行；最后汇总双方结论。"
+            "不要只回复请稍候。"
+        ),
+        required_experts={"inspection", "ops"},
+        poll_interval_sec=poll_interval_sec,
+        poll_timeout_sec=poll_timeout_sec,
+        min_timeout_sec=420.0,
+        task_must_contain={
+            "inspection": ("service-a",),
+            "ops": ("docker",),
+        },
+        task_must_contain_any={
+            "ops": ("ai-apm-web", "ai-apm-ingest", "ingest"),
+        },
+        require_parallel_overlap=("inspection", "ops"),
+        require_final_mentions_any=("service-a", "docker", "容器"),
+    )
+
+
+def _run_data_then_ops_case(
+    base: str,
+    token: str,
+    *,
+    poll_interval_sec: float,
+    poll_timeout_sec: float,
+) -> BrainAsyncCaseResult:
+    """串行拆分：先问数定位异常服务，再运维排查本机环境。"""
+    return _run_multi_expert_split_case(
+        base,
+        token,
+        case_name="多步问数后运维排查",
+        user_message=(
+            "找出最近 1 小时日志 ERROR 最多的服务；然后请运维专家检查本机 DataBuff 相关 "
+            "docker 容器（至少 ai-apm-web）是否正常运行，并结合前面查出的服务说明是否可能是环境问题。"
+            "不要只回复请稍候。"
+        ),
+        required_experts={"data", "ops"},
+        poll_interval_sec=poll_interval_sec,
+        poll_timeout_sec=poll_timeout_sec,
+        min_timeout_sec=420.0,
+        task_must_contain={
+            "ops": ("docker", "ai-apm-web"),
+        },
+        task_must_contain_any={
+            "data": ("ERROR", "error", "错误"),
+        },
+        require_serial=("data", "ops"),
+        require_service_handoff=("data", "ops"),
+        require_final_mentions_any=("docker", "容器", "ai-apm-web"),
+    )
+
+
+def _run_data_and_qa_case(
+    base: str,
+    token: str,
+    *,
+    poll_interval_sec: float,
+    poll_timeout_sec: float,
+) -> BrainAsyncCaseResult:
+    """组合拆分：问数查服务列表 + 产品答疑说明入口位置（data + qa）。"""
+    return _run_multi_expert_split_case(
+        base,
+        token,
+        case_name="组合问数与产品答疑",
+        user_message=(
+            "请查询最近 1 小时的服务列表；同时请产品答疑专家说明在 DataBuff 产品界面里"
+            "哪里可以查看服务列表/服务目录。最后合并两部分回答。"
+            "不要只回复请稍候。"
+        ),
+        required_experts={"data", "qa"},
+        poll_interval_sec=poll_interval_sec,
+        poll_timeout_sec=poll_timeout_sec,
+        min_timeout_sec=360.0,
+        task_must_contain_any={
+            "data": ("服务列表", "服务目录", "全部服务"),
+            "qa": ("界面", "入口", "哪里", "菜单", "页面", "导航", "产品"),
+        },
+        task_must_contain={
+            "qa": ("服务",),
+        },
+        require_final_mentions_any=("服务列表", "服务目录", "服务"),
+    )
+
+
+def _run_inspect_known_service_with_data_context_case(
+    base: str,
+    token: str,
+    *,
+    poll_interval_sec: float,
+    poll_timeout_sec: float,
+) -> BrainAsyncCaseResult:
+    """串行拆分：先问数拿 service-b 近 1 小时错误概况，再巡检 service-b（禁止出报告）。"""
+    return _run_multi_expert_split_case(
+        base,
+        token,
+        case_name="多步问数概况后巡检",
+        user_message=(
+            "先查询最近 1 小时 service-b 的请求量、错误数和平均响应时间；"
+            "再对 service-b 做一次健康巡检，汇总问数结果与巡检结论。"
+            "本次不需要生成 HTML 巡检报告。不要只回复请稍候。"
+        ),
+        required_experts={"data", "inspection"},
+        poll_interval_sec=poll_interval_sec,
+        poll_timeout_sec=poll_timeout_sec,
+        min_timeout_sec=420.0,
+        task_must_contain={
+            "data": ("service-b",),
+            "inspection": ("service-b",),
+        },
+        task_must_contain_any={
+            "data": ("请求量", "错误", "响应时间", "耗时"),
+        },
+        require_serial=("data", "inspection"),
+        require_html=False,
+        forbid_report_request_experts=("inspection",),
+        require_final_mentions_any=("service-b",),
+    )
+
+
 def run_ai_brain_async_routing_cases(
     base: str,
     token: str,
@@ -414,16 +948,17 @@ def run_ai_brain_async_routing_cases(
         _run_expert_failure_case,
         _run_cross_session_isolation_case,
         _run_multi_round_dispatch_case,
+        _run_multi_step_inspect_report_case,
+        _run_multi_step_latency_inspect_report_case,
+        _run_parallel_inspect_and_ops_case,
+        _run_data_then_ops_case,
+        _run_data_and_qa_case,
+        _run_inspect_known_service_with_data_context_case,
     )
     kwargs = {
         "poll_interval_sec": poll_interval_sec,
-        "poll_timeout_sec": poll_timeout_sec,
+        "poll_timeout_sec": max(float(poll_timeout_sec), 900.0),
     }
-    # Default parallel; AI_BRAIN_CASES_PARALLEL=0 only for local debug.
-    parallel = os.environ.get("AI_BRAIN_CASES_PARALLEL", "1") != "0"
-    if not parallel:
-        return [fn(base, token, **kwargs) for fn in case_fns]
-
     results: list[BrainAsyncCaseResult | None] = [None] * len(case_fns)
     with ThreadPoolExecutor(max_workers=len(case_fns)) as pool:
         futs = {pool.submit(fn, base, token, **kwargs): idx for idx, fn in enumerate(case_fns)}
